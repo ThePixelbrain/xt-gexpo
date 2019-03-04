@@ -24,6 +24,7 @@
 #include <strsafe.h>
 
 #define EXPORT_DIR  L"Griffeye export"
+#define REP_TABLE   L"[XT] Exported by xt-gexpo"
 #define IMG_SUBDIR  L"Pictures"
 #define VID_SUBDIR  L"Movies"
 #define CASE_REPORT L"Case Report.xml"
@@ -125,6 +126,7 @@ int xwf_version = 0;
 #define XWF_CASEPROP_TITLE 1
 #define XWF_CASEPROP_DIR   6
 
+typedef LONG   (XTAPI * fptr00) (LONG, LPWSTR, DWORD);
 typedef INT64  (XTAPI * fptr01) (LPVOID, LONG, PVOID, LONG);
 typedef HANDLE (XTAPI * fptr02) (LPVOID);
 typedef INT64  (XTAPI * fptr03) (LONG, LONG, LPBOOL);
@@ -137,6 +139,7 @@ typedef VOID   (XTAPI * fptr09) (HANDLE, LPWSTR, DWORD);
 typedef void   (XTAPI * fptr10) (LPWSTR, DWORD);
 typedef DWORD  (XTAPI * fptr11) (HANDLE, INT64, LPVOID, DWORD);
 
+fptr00 XWF_AddToRepTable = NULL;
 fptr01 XWF_GetCaseProp   = NULL;
 fptr02 XWF_GetFirstEvObj = NULL;
 fptr03 XWF_GetItemInfo   = NULL;
@@ -154,6 +157,7 @@ GetXwfFunctions ()
 {
     HMODULE h = GetModuleHandleW (NULL);
 
+    XWF_AddToRepTable = (fptr00) GetProcAddress (h, "XWF_AddToReportTable");
     XWF_GetCaseProp   = (fptr01) GetProcAddress (h, "XWF_GetCaseProp");
     XWF_GetFirstEvObj = (fptr02) GetProcAddress (h, "XWF_GetFirstEvObj");
     XWF_GetItemInfo   = (fptr03) GetProcAddress (h, "XWF_GetItemInformation");
@@ -172,7 +176,8 @@ GetXwfFunctions ()
 DWORD
 CheckXwfFunctions ()
 {
-    return (XWF_GetCaseProp
+    return (XWF_AddToRepTable
+         && XWF_GetCaseProp
          && XWF_GetFirstEvObj
          && XWF_GetItemInfo
          && XWF_GetItemName
@@ -872,6 +877,10 @@ XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
                             "rite to export directory. Aborting.", 2);
         XWF_OutputMessage (L"Error on file:", 2);
         XWF_OutputMessage (filepath, 3);
+    }
+    else
+    {
+        XWF_AddToRepTable (nItemID, REP_TABLE, 1);
     }
 
     return 0;
