@@ -814,6 +814,12 @@ XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
     fi.written  = GET_ITEM_TIME (XWF_ITEM_INFO_MODIFICATIONTIME);
     fi.filesize = XWF_GetItemSize (nItemID);
 
+    if (-1 == fi.filesize)
+    {
+        // Should never happen for valid files, ignore
+        return 0;
+    }
+
     // Recursively concatenate full file path
     StringCchCopyW (filepath, MAX_PATH, XWF_GetItemName (nItemID));
     LONG parent      = XWF_GetItemParent (nItemID);
