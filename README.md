@@ -2,11 +2,14 @@
 
 This X-Tension allows you to export images and videos from X-Ways Forensics in
 the C4All format. You can then import the XML indexes in Griffeye Analyze.
-Requires X-Ways Forensics version 17.6 or later.
+
+## Requirements
+* Windows 10
+* X-Ways Forensics 17.6 or later
 
 ## Installation
-* Download the [32-bit](https://github.com/Naufragous/xt-gexpo/releases/tag/1.0)
-or [64-bit](https://github.com/Naufragous/xt-gexpo/releases/tag/1.0-x64)
+* Download the [32-bit](https://github.com/Naufragous/xt-gexpo/releases/download/release/xt-gexpo-x86.zip)
+or [64-bit](https://github.com/Naufragous/xt-gexpo/releases/download/release/xt-gexpo-x64.zip)
 Release.
 * Execute the X-Tension either by checking the *Run X-Tensions* box in the
 *Refine Volume Snapshot* window or by selecting *Run X-Tensions* from the
