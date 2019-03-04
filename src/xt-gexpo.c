@@ -578,10 +578,19 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
         return 1;
     }
 
+    HANDLE first_obj = XWF_GetFirstEvObj (NULL);
+    if (!first_obj)
+    {
+        // Empty case
+        XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension needs an ev"
+                            "idence item to work on. Aborting.", 2);
+        export_dir[0] = L'\0';
+        return 1;
+    }
+    int create_global_report = 0;
     // If there is more than one evidence item, ask the user whether we should
     // split exported files and create a subdirectory for every evidence item.
-    HANDLE first_obj = XWF_GetFirstEvObj (NULL);
-    if (first_obj && XWF_GetNextEvObj (first_obj, NULL))
+    if (XWF_GetNextEvObj (first_obj, NULL))
     {
         LPCWSTR cap = L"Do you want a merged export?";
         LPCWSTR msg = L"This case contains several evidence items. Griffeye X"
@@ -596,18 +605,26 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
         }
         else
         {
-            // Our first volume will be a dummy one and will just serve as a
-            // link to the global XtReport structure.
-            current_volume = calloc (1, sizeof (struct XtVolume));
-            first_volume   = current_volume;
-
-            if (0 == XmlCreateReportFiles (export_dir))
-            {
-                XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension cou"
-                                    "ld not create a file. Aborting.", 2);
-                export_dir[0] = L'\0';
-                return 1;
-            }
+            create_global_report = 1;
+        }
+    }
+    else
+    {
+        // There is only one evidence item
+        create_global_report = 1;
+    }
+    if (create_global_report)
+    {
+        // Our first volume will be a dummy one and will just serve as a
+        // link to the global XtReport structure.
+        current_volume = calloc (1, sizeof (struct XtVolume));
+        first_volume   = current_volume;
+        if (0 == XmlCreateReportFiles (export_dir))
+        {
+            XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension could n"
+                                "ot create a file. Aborting.", 2);
+            export_dir[0] = L'\0';
+            return 1;
         }
     }
 
