@@ -265,7 +265,7 @@ SetCurrentVolume (LPWSTR name)
 {
     struct XtVolume * previous = first_volume;
     struct XtVolume * current  = previous;
-   
+
     while (current)
     {
         if (0 == wcscmp (name, current->name))
@@ -276,7 +276,7 @@ SetCurrentVolume (LPWSTR name)
         previous = current;
         current  = current->next;
     }
-    
+
     // We need to create a new (maybe first) volume
     current_volume = calloc (1, sizeof (struct XtVolume));
     if (previous)
@@ -356,41 +356,31 @@ XmlWriteReport (HANDLE file)
     StringCchPrintfW (ver, 18, L"%d.%d",
                       xwf_version / 100,
                       xwf_version % 100 / 10);
-
     GetDateFormatEx (LOCALE_NAME_USER_DEFAULT,
                      0, NULL,
                      L"dd'-'MMM'-'yyyy",
-                     date, 64,
-                     NULL);
-
+                     date, 64, NULL);
     GetTimeFormatEx (LOCALE_NAME_USER_DEFAULT,
                      TIME_FORCE24HOURFORMAT, NULL,
                      L"HH'-'mm'-'ss",
                      time, 64);
 
-    LPCWSTR s1 = L"<CaseReport>\r\n  <CaseNumber><![CDATA[";
-    LPCWSTR s2 = case_name;
-    LPCWSTR s3 = L"]]></CaseNumber>\r\n  <Date><![CDATA[";
-    LPCWSTR s4 = date;
-    LPCWSTR s5 = L"]]></Date>\r\n  <Time><![CDATA[";
-    LPCWSTR s6 = time;
-    LPCWSTR s7 = L"]]></Time>\r\n  <Comment><![CDATA[Created by Griffeye XML "
-                   "export X-Tension: https://github.com/Naufragous/xt-gexpo/"
-                   " ]]></Comment>\r\n  <DLLversion><![CDATA[V1.0]]></DLLvers"
-                   "ion>\r\n  <XwaysVersion><![CDATA[";
-    LPCWSTR s8 = ver;
-    LPCWSTR s9 = L"]]></XwaysVersion>\r\n</CaseReport>";
-
     return (XmlWriteBomHeader (file)
-            && XmlWriteString (file, s1)
-            && XmlWriteString (file, s2)
-            && XmlWriteString (file, s3)
-            && XmlWriteString (file, s4)
-            && XmlWriteString (file, s5)
-            && XmlWriteString (file, s6)
-            && XmlWriteString (file, s7)
-            && XmlWriteString (file, s8)
-            && XmlWriteString (file, s9));
+            && XmlWriteString (file, L"<CaseReport>\r\n  <CaseNumber><![CDATA"
+                                      "[")
+            && XmlWriteString (file, case_name)
+            && XmlWriteString (file, L"]]></CaseNumber>\r\n  <Date><![CDATA[")
+            && XmlWriteString (file, date)
+            && XmlWriteString (file, L"]]></Date>\r\n  <Time><![CDATA[")
+            && XmlWriteString (file, time)
+            && XmlWriteString (file, L"]]></Time>\r\n  <Comment><![CDATA[Crea"
+                                      "ted by Griffeye XML export X-Tension: "
+                                      "https://github.com/Naufragous/xt-gexpo"
+                                      "/ ]]></Comment>\r\n  <DLLversion><![CD"
+                                      "ATA[V1.0]]></DLLversion>\r\n  <XwaysVe"
+                                      "rsion><![CDATA[")
+            && XmlWriteString (file, ver)
+            && XmlWriteString (file, L"]]></XwaysVersion>\r\n</CaseReport>"));
 }
 
 BOOL
@@ -420,58 +410,33 @@ XmlWriteXtFile (HANDLE file, struct XtFile * xf,
     StringCchPrintfW (wtime, 32, L"%lld", xf->written);
     StringCchPrintfW (size,  32, L"%lld", xf->filesize);
 
-    LPCWSTR s01 = L"<";
-    LPCWSTR s02 = tag1;
-    LPCWSTR s03 = L">\r\n  <path><![CDATA[";
-    LPCWSTR s04 = subdir;
-    LPCWSTR s05 = L"\\]]></path>\r\n  <";
-    LPCWSTR s06 = tag2;
-    LPCWSTR s07 = L">";
-    LPCWSTR s08 = id;
-    LPCWSTR s09 = L"</";
-    LPCWSTR s10 = tag2;
-    LPCWSTR s11 = L">\r\n  <id>";
-    LPCWSTR s12 = id;
-    LPCWSTR s13 = L"</id>\r\n  <category>0</category>\r\n  <fileoffset>0</fil"
-                   "eoffset>\r\n  <fullpath><![CDATA[";
-    LPCWSTR s14 = xf->fullpath;
-    LPCWSTR s15 = L"]]></fullpath>\r\n  <created>";
-    LPCWSTR s16 = ctime;
-    LPCWSTR s17 = L"</created>\r\n  <accessed>";
-    LPCWSTR s18 = atime;
-    LPCWSTR s19 = L"</accessed>\r\n  <written>";
-    LPCWSTR s20 = wtime;
-    LPCWSTR s21 = L"</written>\r\n  <fileSize>";
-    LPCWSTR s22 = size;
-    LPCWSTR s23 = L"</fileSize>\r\n</";
-    LPCWSTR s24 = tag1;
-    LPCWSTR s25 = L">\r\n";
-
-    return (   XmlWriteString (file, s01)
-            && XmlWriteString (file, s02)
-            && XmlWriteString (file, s03)
-            && XmlWriteString (file, s04)
-            && XmlWriteString (file, s05)
-            && XmlWriteString (file, s06)
-            && XmlWriteString (file, s07)
-            && XmlWriteString (file, s08)
-            && XmlWriteString (file, s09)
-            && XmlWriteString (file, s10)
-            && XmlWriteString (file, s11)
-            && XmlWriteString (file, s12)
-            && XmlWriteString (file, s13)
-            && XmlWriteString (file, s14)
-            && XmlWriteString (file, s15)
-            && XmlWriteString (file, s16)
-            && XmlWriteString (file, s17)
-            && XmlWriteString (file, s18)
-            && XmlWriteString (file, s19)
-            && XmlWriteString (file, s20)
-            && XmlWriteString (file, s21)
-            && XmlWriteString (file, s22)
-            && XmlWriteString (file, s23)
-            && XmlWriteString (file, s24)
-            && XmlWriteString (file, s25));
+    return (   XmlWriteString (file, L"<")
+            && XmlWriteString (file, tag1)
+            && XmlWriteString (file, L">\r\n  <path><![CDATA[")
+            && XmlWriteString (file, subdir)
+            && XmlWriteString (file, L"\\]]></path>\r\n  <")
+            && XmlWriteString (file, tag2)
+            && XmlWriteString (file, L">")
+            && XmlWriteString (file, id)
+            && XmlWriteString (file, L"</")
+            && XmlWriteString (file, tag2)
+            && XmlWriteString (file, L">\r\n  <id>")
+            && XmlWriteString (file, id)
+            && XmlWriteString (file, L"</id>\r\n  <category>0</category>\r\n "
+                                      " <fileoffset>0</fileoffset>\r\n  <full"
+                                      "path><![CDATA[")
+            && XmlWriteString (file, xf->fullpath)
+            && XmlWriteString (file, L"]]></fullpath>\r\n  <created>")
+            && XmlWriteString (file, ctime)
+            && XmlWriteString (file, L"</created>\r\n  <accessed>")
+            && XmlWriteString (file, atime)
+            && XmlWriteString (file, L"</accessed>\r\n  <written>")
+            && XmlWriteString (file, wtime)
+            && XmlWriteString (file, L"</written>\r\n  <fileSize>")
+            && XmlWriteString (file, size)
+            && XmlWriteString (file, L"</fileSize>\r\n</")
+            && XmlWriteString (file, tag1)
+            && XmlWriteString (file, L">\r\n"));
 }
 
 // Creates templates for the three xml report files in dir and also
@@ -566,7 +531,7 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
         return -1;
     }
 
-    // From here on we always return 2, even when an error occurs.
+    // From here on we always return 1, even when an error occurs.
     // Returning -1 would provoke additional error messages in X-Ways
     // which suggest that the X-Tension is not working properly.
     // We will check export_dir variable instead and abort silently
@@ -598,7 +563,7 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
             case_name[i] = L'_';
         }
     }
-    
+
     // Show 'select folder' dialog, starting at case directory
     XWF_GetCaseProp (NULL, XWF_CASEPROP_DIR, export_dir, MAX_PATH);
     if (0 == BrowseForExportDir (export_dir))
@@ -991,10 +956,10 @@ XT_About (HANDLE hParentWnd, PVOID lpReserved)
                      "you to create C4All reports which can be imported by Gr"
                      "iffeye Analyze. You can choose to merge all evidence it"
                      "ems into a single report or to separate them into subdi"
-                     "rectories. Eiter way the XML reports will contain the f"
-                     "ull file path starting with the evidence item name and "
-                     "partition number.\n\nSource code available at:\nhttps:/"
-                     "/github.com/Naufragous/xt-gexpo\n\nAuthor: R. Yushaev";
+                     "rectories. Either way the XML reports will contain the "
+                     "full file path starting with the evidence item name and"
+                     " partition number.\n\nSource code available at:\nhttps:"
+                     "//github.com/Naufragous/xt-gexpo\n\nAuthor: R. Yushaev";
     MessageBoxW (NULL, about, L"About", MB_ICONINFORMATION);
 
     return 0;
