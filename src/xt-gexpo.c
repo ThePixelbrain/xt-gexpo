@@ -837,7 +837,7 @@ XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
     fi.written  = GET_ITEM_TIME (XWF_ITEM_INFO_MODIFICATIONTIME);
     fi.filesize = XWF_GetItemSize (nItemID);
 
-    if (-1 == fi.filesize)
+    if (1 > fi.filesize)
     {
         // Should never happen for valid files, ignore
         return 0;
