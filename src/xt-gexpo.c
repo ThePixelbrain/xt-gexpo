@@ -41,10 +41,6 @@
 
 #define EXPORT __declspec (dllexport)
 
-// Converts WinAPI FILETIME to unix epoch time
-#define GET_ITEM_TIME(x) (XWF_GetItemInfo (nItemID, (x), NULL) / 10000000 \
-                          - 11644473600LL)
-
 struct XtFile
 {
     INT64 id;
@@ -126,49 +122,51 @@ int xwf_version = 0;
 #define XWF_CASEPROP_TITLE 1
 #define XWF_CASEPROP_DIR   6
 
-typedef LONG   (XTAPI * fptr00) (LONG, LPWSTR, DWORD);
-typedef INT64  (XTAPI * fptr01) (LPVOID, LONG, PVOID, LONG);
-typedef HANDLE (XTAPI * fptr02) (LPVOID);
-typedef INT64  (XTAPI * fptr03) (LONG, LONG, LPBOOL);
-typedef LPWSTR (XTAPI * fptr04) (LONG);
-typedef LONG   (XTAPI * fptr05) (LONG);
-typedef INT64  (XTAPI * fptr06) (LONG);
-typedef LONG   (XTAPI * fptr07) (LONG, LPWSTR, DWORD);
-typedef HANDLE (XTAPI * fptr08) (HANDLE, LPVOID);
-typedef VOID   (XTAPI * fptr09) (HANDLE, LPWSTR, DWORD);
-typedef void   (XTAPI * fptr10) (LPWSTR, DWORD);
-typedef DWORD  (XTAPI * fptr11) (HANDLE, INT64, LPVOID, DWORD);
+typedef LONG   (XTAPI * fp_XWF_AddToReportTable) (LONG, LPWSTR, DWORD);
+typedef INT64  (XTAPI * fp_XWF_GetCaseProp) (LPVOID, LONG, PVOID, LONG);
+typedef HANDLE (XTAPI * fp_XWF_GetFirstEvObj) (LPVOID);
+typedef INT64  (XTAPI * fp_XWF_GetItemInformation) (LONG, LONG, LPBOOL);
+typedef LPWSTR (XTAPI * fp_XWF_GetItemName) (LONG);
+typedef LONG   (XTAPI * fp_XWF_GetItemParent) (LONG);
+typedef INT64  (XTAPI * fp_XWF_GetItemSize) (LONG);
+typedef LONG   (XTAPI * fp_XWF_GetItemType) (LONG, LPWSTR, DWORD);
+typedef HANDLE (XTAPI * fp_XWF_GetNextEvObj) (HANDLE, LPVOID);
+typedef VOID   (XTAPI * fp_XWF_GetVolumeName) (HANDLE, LPWSTR, DWORD);
+typedef void   (XTAPI * fp_XWF_OutputMessage) (LPWSTR, DWORD);
+typedef DWORD  (XTAPI * fp_XWF_Read) (HANDLE, INT64, LPVOID, DWORD);
 
-fptr00 XWF_AddToRepTable = NULL;
-fptr01 XWF_GetCaseProp   = NULL;
-fptr02 XWF_GetFirstEvObj = NULL;
-fptr03 XWF_GetItemInfo   = NULL;
-fptr04 XWF_GetItemName   = NULL;
-fptr05 XWF_GetItemParent = NULL;
-fptr06 XWF_GetItemSize   = NULL;
-fptr07 XWF_GetItemType   = NULL;
-fptr08 XWF_GetNextEvObj  = NULL;
-fptr09 XWF_GetVolumeName = NULL;
-fptr10 XWF_OutputMessage = NULL;
-fptr11 XWF_Read          = NULL;
+fp_XWF_AddToReportTable   XWF_AddToReportTable   = NULL;
+fp_XWF_GetCaseProp        XWF_GetCaseProp        = NULL;
+fp_XWF_GetFirstEvObj      XWF_GetFirstEvObj      = NULL;
+fp_XWF_GetItemInformation XWF_GetItemInformation = NULL;
+fp_XWF_GetItemName        XWF_GetItemName        = NULL;
+fp_XWF_GetItemParent      XWF_GetItemParent      = NULL;
+fp_XWF_GetItemSize        XWF_GetItemSize        = NULL;
+fp_XWF_GetItemType        XWF_GetItemType        = NULL;
+fp_XWF_GetNextEvObj       XWF_GetNextEvObj       = NULL;
+fp_XWF_GetVolumeName      XWF_GetVolumeName      = NULL;
+fp_XWF_OutputMessage      XWF_OutputMessage      = NULL;
+fp_XWF_Read               XWF_Read               = NULL;
 
 VOID
 GetXwfFunctions ()
 {
     HMODULE h = GetModuleHandleW (NULL);
 
-    XWF_AddToRepTable = (fptr00) GetProcAddress (h, "XWF_AddToReportTable");
-    XWF_GetCaseProp   = (fptr01) GetProcAddress (h, "XWF_GetCaseProp");
-    XWF_GetFirstEvObj = (fptr02) GetProcAddress (h, "XWF_GetFirstEvObj");
-    XWF_GetItemInfo   = (fptr03) GetProcAddress (h, "XWF_GetItemInformation");
-    XWF_GetItemName   = (fptr04) GetProcAddress (h, "XWF_GetItemName");
-    XWF_GetItemParent = (fptr05) GetProcAddress (h, "XWF_GetItemParent");
-    XWF_GetItemSize   = (fptr06) GetProcAddress (h, "XWF_GetItemSize");
-    XWF_GetItemType   = (fptr07) GetProcAddress (h, "XWF_GetItemType");
-    XWF_GetNextEvObj  = (fptr08) GetProcAddress (h, "XWF_GetNextEvObj");
-    XWF_GetVolumeName = (fptr09) GetProcAddress (h, "XWF_GetVolumeName");
-    XWF_OutputMessage = (fptr10) GetProcAddress (h, "XWF_OutputMessage");
-    XWF_Read          = (fptr11) GetProcAddress (h, "XWF_Read");
+    #define LOAD_FUNCTION(x) (x = (fp_ ## x) GetProcAddress (h, #x))
+
+    LOAD_FUNCTION (XWF_AddToReportTable);
+    LOAD_FUNCTION (XWF_GetCaseProp);
+    LOAD_FUNCTION (XWF_GetFirstEvObj);
+    LOAD_FUNCTION (XWF_GetItemInformation);
+    LOAD_FUNCTION (XWF_GetItemName);
+    LOAD_FUNCTION (XWF_GetItemParent);
+    LOAD_FUNCTION (XWF_GetItemSize);
+    LOAD_FUNCTION (XWF_GetItemType);
+    LOAD_FUNCTION (XWF_GetNextEvObj);
+    LOAD_FUNCTION (XWF_GetVolumeName);
+    LOAD_FUNCTION (XWF_OutputMessage);
+    LOAD_FUNCTION (XWF_Read);
 }
 
 // Returns 1 if all function pointers have been initialized
@@ -176,10 +174,10 @@ GetXwfFunctions ()
 DWORD
 CheckXwfFunctions ()
 {
-    return (XWF_AddToRepTable
+    return (XWF_AddToReportTable
          && XWF_GetCaseProp
          && XWF_GetFirstEvObj
-         && XWF_GetItemInfo
+         && XWF_GetItemInformation
          && XWF_GetItemName
          && XWF_GetItemParent
          && XWF_GetItemSize
@@ -191,7 +189,8 @@ CheckXwfFunctions ()
 }
 
 // Expands provided path on dialog initialization
-BFFCALLBACK MyCallback (HWND hwnd, UINT uMsg, LPARAM lParam, LPARAM lpData)
+BFFCALLBACK
+MyCallback (HWND hwnd, UINT uMsg, LPARAM lParam, LPARAM lpData)
 {
     if (BFFM_INITIALIZED == uMsg)
     {
@@ -348,7 +347,7 @@ XmlWriteBomHeader (HANDLE file)
     LPCWSTR header = L"<?xml version=\"1.0\" encoding=\"utf-16\"?>\r\n";
 
     return (WriteFile (file, bom, 2, NULL, NULL)
-            && XmlWriteString (file, header));
+         && XmlWriteString (file, header));
 }
 
 BOOL
@@ -371,21 +370,19 @@ XmlWriteReport (HANDLE file)
                      time, 64);
 
     return (XmlWriteBomHeader (file)
-            && XmlWriteString (file, L"<CaseReport>\r\n  <CaseNumber><![CDATA"
-                                      "[")
-            && XmlWriteString (file, case_name)
-            && XmlWriteString (file, L"]]></CaseNumber>\r\n  <Date><![CDATA[")
-            && XmlWriteString (file, date)
-            && XmlWriteString (file, L"]]></Date>\r\n  <Time><![CDATA[")
-            && XmlWriteString (file, time)
-            && XmlWriteString (file, L"]]></Time>\r\n  <Comment><![CDATA[Crea"
-                                      "ted by Griffeye XML export X-Tension: "
-                                      "https://github.com/Naufragous/xt-gexpo"
-                                      "/ ]]></Comment>\r\n  <DLLversion><![CD"
-                                      "ATA[V1.0]]></DLLversion>\r\n  <XwaysVe"
-                                      "rsion><![CDATA[")
-            && XmlWriteString (file, ver)
-            && XmlWriteString (file, L"]]></XwaysVersion>\r\n</CaseReport>"));
+         && XmlWriteString (file, L"<CaseReport>\r\n  <CaseNumber><![CDATA[")
+         && XmlWriteString (file, case_name)
+         && XmlWriteString (file, L"]]></CaseNumber>\r\n  <Date><![CDATA[")
+         && XmlWriteString (file, date)
+         && XmlWriteString (file, L"]]></Date>\r\n  <Time><![CDATA[")
+         && XmlWriteString (file, time)
+         && XmlWriteString (file, L"]]></Time>\r\n  <Comment><![CDATA[Created"
+                                   " by Griffeye XML export X-Tension: https:"
+                                   "//github.com/Naufragous/xt-gexpo/ ]]></Co"
+                                   "mment>\r\n  <DLLversion><![CDATA[V1.0]]><"
+                                   "/DLLversion>\r\n  <XwaysVersion><![CDATA[")
+         && XmlWriteString (file, ver)
+         && XmlWriteString (file, L"]]></XwaysVersion>\r\n</CaseReport>"));
 }
 
 BOOL
@@ -395,7 +392,7 @@ XmlWriteIndex (HANDLE file)
                  "iffeye XML export X-Tension\">\r\n";
 
     return (XmlWriteBomHeader (file)
-            && XmlWriteString (file, s));
+         && XmlWriteString (file, s));
 }
 
 // Appends a complete file entry to specified index file
@@ -415,33 +412,33 @@ XmlWriteXtFile (HANDLE file, struct XtFile * xf,
     StringCchPrintfW (wtime, 32, L"%lld", xf->written);
     StringCchPrintfW (size,  32, L"%lld", xf->filesize);
 
-    return (   XmlWriteString (file, L"<")
-            && XmlWriteString (file, tag1)
-            && XmlWriteString (file, L">\r\n  <path><![CDATA[")
-            && XmlWriteString (file, subdir)
-            && XmlWriteString (file, L"\\]]></path>\r\n  <")
-            && XmlWriteString (file, tag2)
-            && XmlWriteString (file, L">")
-            && XmlWriteString (file, id)
-            && XmlWriteString (file, L"</")
-            && XmlWriteString (file, tag2)
-            && XmlWriteString (file, L">\r\n  <id>")
-            && XmlWriteString (file, id)
-            && XmlWriteString (file, L"</id>\r\n  <category>0</category>\r\n "
-                                      " <fileoffset>0</fileoffset>\r\n  <full"
-                                      "path><![CDATA[")
-            && XmlWriteString (file, xf->fullpath)
-            && XmlWriteString (file, L"]]></fullpath>\r\n  <created>")
-            && XmlWriteString (file, ctime)
-            && XmlWriteString (file, L"</created>\r\n  <accessed>")
-            && XmlWriteString (file, atime)
-            && XmlWriteString (file, L"</accessed>\r\n  <written>")
-            && XmlWriteString (file, wtime)
-            && XmlWriteString (file, L"</written>\r\n  <fileSize>")
-            && XmlWriteString (file, size)
-            && XmlWriteString (file, L"</fileSize>\r\n</")
-            && XmlWriteString (file, tag1)
-            && XmlWriteString (file, L">\r\n"));
+    return (XmlWriteString (file, L"<")
+         && XmlWriteString (file, tag1)
+         && XmlWriteString (file, L">\r\n  <path><![CDATA[")
+         && XmlWriteString (file, subdir)
+         && XmlWriteString (file, L"\\]]></path>\r\n  <")
+         && XmlWriteString (file, tag2)
+         && XmlWriteString (file, L">")
+         && XmlWriteString (file, id)
+         && XmlWriteString (file, L"</")
+         && XmlWriteString (file, tag2)
+         && XmlWriteString (file, L">\r\n  <id>")
+         && XmlWriteString (file, id)
+         && XmlWriteString (file, L"</id>\r\n  <category>0</category>\r\n  <f"
+                                   "ileoffset>0</fileoffset>\r\n  <fullpath><"
+                                   "![CDATA[")
+         && XmlWriteString (file, xf->fullpath)
+         && XmlWriteString (file, L"]]></fullpath>\r\n  <created>")
+         && XmlWriteString (file, ctime)
+         && XmlWriteString (file, L"</created>\r\n  <accessed>")
+         && XmlWriteString (file, atime)
+         && XmlWriteString (file, L"</accessed>\r\n  <written>")
+         && XmlWriteString (file, wtime)
+         && XmlWriteString (file, L"</written>\r\n  <fileSize>")
+         && XmlWriteString (file, size)
+         && XmlWriteString (file, L"</fileSize>\r\n</")
+         && XmlWriteString (file, tag1)
+         && XmlWriteString (file, L">\r\n"));
 }
 
 // Creates templates for the three xml report files in dir and also
@@ -499,14 +496,14 @@ BOOL
 XmlAppendImage (struct XtFile * xf)
 {
     return XmlWriteXtFile (current_volume->report->xml_image_index, xf,
-                        L"Image", L"picture", IMG_SUBDIR);
+                           L"Image", L"picture", IMG_SUBDIR);
 }
 
 BOOL
 XmlAppendMovie (struct XtFile * xf)
 {
     return XmlWriteXtFile (current_volume->report->xml_movie_index, xf,
-                        L"Movie", L"movie", VID_SUBDIR);
+                           L"Movie", L"movie", VID_SUBDIR);
 }
 
 // Executed once before processing
@@ -709,7 +706,7 @@ XT_Prepare (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         while (1 < pos)
         {
             if (L' ' == shortname[pos--]
-                && L',' == shortname[pos])
+             && L',' == shortname[pos])
             {
                 shortname[pos] = L'\0';
                 break;
@@ -831,6 +828,10 @@ XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
     // Grab all necessary metadata
     struct XtFile fi = { 0 };
 
+    // Converts WinAPI FILETIME to unix epoch time
+    #define GET_ITEM_TIME(x) (XWF_GetItemInformation (nItemID, (x), NULL) \
+                              / 10000000 - 11644473600LL)
+
     fi.created  = GET_ITEM_TIME (XWF_ITEM_INFO_CREATIONTIME);
     fi.accessed = GET_ITEM_TIME (XWF_ITEM_INFO_LASTACCESSTIME);
     fi.written  = GET_ITEM_TIME (XWF_ITEM_INFO_MODIFICATIONTIME);
@@ -897,7 +898,7 @@ XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
     }
     else
     {
-        XWF_AddToRepTable (nItemID, REP_TABLE, 1);
+        XWF_AddToReportTable (nItemID, REP_TABLE, 1);
     }
 
     return 0;
@@ -958,7 +959,7 @@ XT_Done (PVOID lpReserved)
                 RemoveDirectoryW (vid_subdir);
             }
             if (0 == vol->report->image_count
-                && 0 == vol->report->movie_count)
+             && 0 == vol->report->movie_count)
             {
                 DeleteFileW (case_report);
                 RemoveDirectoryW (dir);
