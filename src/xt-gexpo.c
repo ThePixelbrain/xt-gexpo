@@ -833,8 +833,11 @@ XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
     fi.created  = GET_ITEM_TIME (XWF_ITEM_INFO_CREATIONTIME);
     fi.accessed = GET_ITEM_TIME (XWF_ITEM_INFO_LASTACCESSTIME);
     fi.written  = GET_ITEM_TIME (XWF_ITEM_INFO_MODIFICATIONTIME);
-    fi.filesize = XWF_GetItemSize (nItemID);
+    if (0 > fi.created)  fi.created  = 0;
+    if (0 > fi.accessed) fi.accessed = 0;
+    if (0 > fi.written)  fi.written  = 0;
 
+    fi.filesize = XWF_GetItemSize (nItemID);
     if (1 > fi.filesize)
     {
         // Should never happen for valid files, ignore
