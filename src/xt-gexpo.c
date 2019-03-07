@@ -809,12 +809,10 @@ XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
     if (0 == lstrcmpW (type_buf, L"Pictures"))
     {
         type = TYPE_PICTURE;
-        current_volume->report->image_count++;
     }
     else if (0 == lstrcmpW (type_buf, L"Video"))
     {
         type = TYPE_VIDEO;
-        current_volume->report->movie_count++;
     }
     else
     {
@@ -876,12 +874,12 @@ XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
     {
     case TYPE_PICTURE:
         PathCchAppend (filepath, MAX_PATH, IMG_SUBDIR);
-        fi.id = current_volume->report->image_count;
+        fi.id = ++current_volume->report->image_count;
         XmlAppendImage (&fi);
         break;
     case TYPE_VIDEO:
         PathCchAppend (filepath, MAX_PATH, VID_SUBDIR);
-        fi.id = current_volume->report->movie_count;
+        fi.id = ++current_volume->report->movie_count;
         XmlAppendMovie (&fi);
         break;
     }
