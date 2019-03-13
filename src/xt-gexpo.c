@@ -147,25 +147,35 @@ typedef INT64  (XTAPI * fp_XWF_GetItemSize) (LONG);
 typedef LONG   (XTAPI * fp_XWF_GetItemType) (LONG, LPWSTR, DWORD);
 typedef HANDLE (XTAPI * fp_XWF_GetNextEvObj) (HANDLE, LPVOID);
 typedef VOID   (XTAPI * fp_XWF_GetVolumeName) (HANDLE, LPWSTR, DWORD);
+typedef VOID   (XTAPI * fp_XWF_HideProgress) ();
 typedef HANDLE (XTAPI * fp_XWF_OpenItem) (HANDLE, LONG, DWORD);
 typedef void   (XTAPI * fp_XWF_OutputMessage) (LPWSTR, DWORD);
 typedef DWORD  (XTAPI * fp_XWF_Read) (HANDLE, INT64, LPVOID, DWORD);
+typedef VOID   (XTAPI * fp_XWF_SetProgressDescription) (LPWSTR);
+typedef VOID   (XTAPI * fp_XWF_SetProgressPercentage) (DWORD);
+typedef BOOL   (XTAPI * fp_XWF_ShouldStop) ();
+typedef VOID   (XTAPI * fp_XWF_ShowProgress) (LPWSTR, DWORD);
 
-fp_XWF_AddToReportTable   XWF_AddToReportTable   = NULL;
-fp_XWF_Close              XWF_Close              = NULL;
-fp_XWF_GetCaseProp        XWF_GetCaseProp        = NULL;
-fp_XWF_GetFirstEvObj      XWF_GetFirstEvObj      = NULL;
-fp_XWF_GetItemCount       XWF_GetItemCount       = NULL;
-fp_XWF_GetItemInformation XWF_GetItemInformation = NULL;
-fp_XWF_GetItemName        XWF_GetItemName        = NULL;
-fp_XWF_GetItemParent      XWF_GetItemParent      = NULL;
-fp_XWF_GetItemSize        XWF_GetItemSize        = NULL;
-fp_XWF_GetItemType        XWF_GetItemType        = NULL;
-fp_XWF_GetNextEvObj       XWF_GetNextEvObj       = NULL;
-fp_XWF_GetVolumeName      XWF_GetVolumeName      = NULL;
-fp_XWF_OpenItem           XWF_OpenItem           = NULL;
-fp_XWF_OutputMessage      XWF_OutputMessage      = NULL;
-fp_XWF_Read               XWF_Read               = NULL;
+fp_XWF_AddToReportTable       XWF_AddToReportTable       = NULL;
+fp_XWF_Close                  XWF_Close                  = NULL;
+fp_XWF_GetCaseProp            XWF_GetCaseProp            = NULL;
+fp_XWF_GetFirstEvObj          XWF_GetFirstEvObj          = NULL;
+fp_XWF_GetItemCount           XWF_GetItemCount           = NULL;
+fp_XWF_GetItemInformation     XWF_GetItemInformation     = NULL;
+fp_XWF_GetItemName            XWF_GetItemName            = NULL;
+fp_XWF_GetItemParent          XWF_GetItemParent          = NULL;
+fp_XWF_GetItemSize            XWF_GetItemSize            = NULL;
+fp_XWF_GetItemType            XWF_GetItemType            = NULL;
+fp_XWF_GetNextEvObj           XWF_GetNextEvObj           = NULL;
+fp_XWF_GetVolumeName          XWF_GetVolumeName          = NULL;
+fp_XWF_HideProgress           XWF_HideProgress           = NULL;
+fp_XWF_OpenItem               XWF_OpenItem               = NULL;
+fp_XWF_OutputMessage          XWF_OutputMessage          = NULL;
+fp_XWF_Read                   XWF_Read                   = NULL;
+fp_XWF_SetProgressDescription XWF_SetProgressDescription = NULL;
+fp_XWF_SetProgressPercentage  XWF_SetProgressPercentage  = NULL;
+fp_XWF_ShouldStop             XWF_ShouldStop             = NULL;
+fp_XWF_ShowProgress           XWF_ShowProgress           = NULL;
 
 VOID
 GetXwfFunctions ()
@@ -186,9 +196,14 @@ GetXwfFunctions ()
     LOAD_FUNCTION (XWF_GetItemType);
     LOAD_FUNCTION (XWF_GetNextEvObj);
     LOAD_FUNCTION (XWF_GetVolumeName);
+    LOAD_FUNCTION (XWF_HideProgress);
     LOAD_FUNCTION (XWF_OpenItem);
     LOAD_FUNCTION (XWF_OutputMessage);
     LOAD_FUNCTION (XWF_Read);
+    LOAD_FUNCTION (XWF_SetProgressDescription);
+    LOAD_FUNCTION (XWF_SetProgressPercentage);
+    LOAD_FUNCTION (XWF_ShouldStop);
+    LOAD_FUNCTION (XWF_ShowProgress);
 }
 
 // Returns 1 if all function pointers have been initialized
@@ -208,9 +223,15 @@ CheckXwfFunctions ()
          && XWF_GetItemType
          && XWF_GetNextEvObj
          && XWF_GetVolumeName
+         && XWF_HideProgress
          && XWF_OpenItem
          && XWF_OutputMessage
-         && XWF_Read) ? 1 : 0;
+         && XWF_Read
+         && XWF_SetProgressDescription
+         && XWF_SetProgressPercentage
+         && XWF_ShouldStop
+         && XWF_ShowProgress
+         ) ? 1 : 0;
 }
 
 // Expands provided path on dialog initialization
@@ -936,12 +957,18 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
     struct XtFileId * file_ids = current_volume->file_ids;
     struct XtFile   * files    = current_volume->files;
 
-    // We will calculate progress by size, not by file count
-    INT64 total_size = 0;
-    
+    // We will calculate actual export progress by size, not by file count
+    INT64 total_size    = 0;
+    INT64 exported_size = 0;
+
     // Grab all necessary metadata
+    XWF_ShowProgress (L"[XT] Collecting metadata", 4);
     for (INT64 i = 0; i < fc; i++)
     {
+        if (XWF_ShouldStop ())
+        {
+            return 0;
+        }
         if (GetXwfFileInfo (file_ids[i].id, &files[i]))
         {
             total_size += files[i].filesize;
@@ -950,12 +977,20 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         {
             files[i].id = -1;
         }
+        XWF_SetProgressPercentage ((i + 1) * 100 / fc);
     }
+    XWF_HideProgress ();
+
     // Export files
+    XWF_ShowProgress (L"[XT] Exporting files", 4);
     WCHAR filepath[MAX_PATH] = { 0 };
     WCHAR filename[MAX_PATH] = { 0 };
     for (INT64 i = 0; i < fc; i++)
     {
+        if (XWF_ShouldStop ())
+        {
+            return 0;
+        }
         if (-1 == files[i].id)
         {
             continue;
@@ -1001,7 +1036,10 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
             XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension could n"
                                 "ot access file data. Aborting.", 2);
         }
+        exported_size += files[i].filesize;
+        XWF_SetProgressPercentage (exported_size * 100 / total_size);
     }
+    XWF_HideProgress ();
 
     free (current_volume->file_ids);
     free (current_volume->files);
