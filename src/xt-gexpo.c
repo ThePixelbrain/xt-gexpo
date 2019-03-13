@@ -31,7 +31,7 @@
 #define IMG_REPORT  L"C4P Index.xml"
 #define VID_REPORT  L"C4M Index.xml"
 #define MIN_VER     1760
-#define MIN_VER_S   "17.6"
+#define MIN_VER_S   L"17.6"
 
 #define NAME_BUF_LEN 256
 
@@ -70,10 +70,23 @@ struct XtReport
     WCHAR export_path[MAX_PATH];
 };
 
+// Small struct for file enumeration
+struct XtFileId
+{
+    INT64 id;
+    int type;
+};
+
 struct XtVolume
 {
     struct XtVolume * next;
     struct XtReport * report;
+
+    struct XtFileId * file_ids;
+    struct XtFile   * files;
+
+    // Amount of enumerated file IDs
+    INT64 file_count;
 
     // Top-level evidence item name
     // Used to group volumes (partitions) together
@@ -123,8 +136,10 @@ int xwf_version = 0;
 #define XWF_CASEPROP_DIR   6
 
 typedef LONG   (XTAPI * fp_XWF_AddToReportTable) (LONG, LPWSTR, DWORD);
+typedef VOID   (XTAPI * fp_XWF_Close) (HANDLE);
 typedef INT64  (XTAPI * fp_XWF_GetCaseProp) (LPVOID, LONG, PVOID, LONG);
 typedef HANDLE (XTAPI * fp_XWF_GetFirstEvObj) (LPVOID);
+typedef DWORD  (XTAPI * fp_XWF_GetItemCount) (LPVOID);
 typedef INT64  (XTAPI * fp_XWF_GetItemInformation) (LONG, LONG, LPBOOL);
 typedef LPWSTR (XTAPI * fp_XWF_GetItemName) (LONG);
 typedef LONG   (XTAPI * fp_XWF_GetItemParent) (LONG);
@@ -132,12 +147,15 @@ typedef INT64  (XTAPI * fp_XWF_GetItemSize) (LONG);
 typedef LONG   (XTAPI * fp_XWF_GetItemType) (LONG, LPWSTR, DWORD);
 typedef HANDLE (XTAPI * fp_XWF_GetNextEvObj) (HANDLE, LPVOID);
 typedef VOID   (XTAPI * fp_XWF_GetVolumeName) (HANDLE, LPWSTR, DWORD);
+typedef HANDLE (XTAPI * fp_XWF_OpenItem) (HANDLE, LONG, DWORD);
 typedef void   (XTAPI * fp_XWF_OutputMessage) (LPWSTR, DWORD);
 typedef DWORD  (XTAPI * fp_XWF_Read) (HANDLE, INT64, LPVOID, DWORD);
 
 fp_XWF_AddToReportTable   XWF_AddToReportTable   = NULL;
+fp_XWF_Close              XWF_Close              = NULL;
 fp_XWF_GetCaseProp        XWF_GetCaseProp        = NULL;
 fp_XWF_GetFirstEvObj      XWF_GetFirstEvObj      = NULL;
+fp_XWF_GetItemCount       XWF_GetItemCount       = NULL;
 fp_XWF_GetItemInformation XWF_GetItemInformation = NULL;
 fp_XWF_GetItemName        XWF_GetItemName        = NULL;
 fp_XWF_GetItemParent      XWF_GetItemParent      = NULL;
@@ -145,6 +163,7 @@ fp_XWF_GetItemSize        XWF_GetItemSize        = NULL;
 fp_XWF_GetItemType        XWF_GetItemType        = NULL;
 fp_XWF_GetNextEvObj       XWF_GetNextEvObj       = NULL;
 fp_XWF_GetVolumeName      XWF_GetVolumeName      = NULL;
+fp_XWF_OpenItem           XWF_OpenItem           = NULL;
 fp_XWF_OutputMessage      XWF_OutputMessage      = NULL;
 fp_XWF_Read               XWF_Read               = NULL;
 
@@ -156,8 +175,10 @@ GetXwfFunctions ()
     #define LOAD_FUNCTION(x) (x = (fp_ ## x) GetProcAddress (h, #x))
 
     LOAD_FUNCTION (XWF_AddToReportTable);
+    LOAD_FUNCTION (XWF_Close);
     LOAD_FUNCTION (XWF_GetCaseProp);
     LOAD_FUNCTION (XWF_GetFirstEvObj);
+    LOAD_FUNCTION (XWF_GetItemCount);
     LOAD_FUNCTION (XWF_GetItemInformation);
     LOAD_FUNCTION (XWF_GetItemName);
     LOAD_FUNCTION (XWF_GetItemParent);
@@ -165,6 +186,7 @@ GetXwfFunctions ()
     LOAD_FUNCTION (XWF_GetItemType);
     LOAD_FUNCTION (XWF_GetNextEvObj);
     LOAD_FUNCTION (XWF_GetVolumeName);
+    LOAD_FUNCTION (XWF_OpenItem);
     LOAD_FUNCTION (XWF_OutputMessage);
     LOAD_FUNCTION (XWF_Read);
 }
@@ -175,8 +197,10 @@ DWORD
 CheckXwfFunctions ()
 {
     return (XWF_AddToReportTable
+         && XWF_Close
          && XWF_GetCaseProp
          && XWF_GetFirstEvObj
+         && XWF_GetItemCount
          && XWF_GetItemInformation
          && XWF_GetItemName
          && XWF_GetItemParent
@@ -184,6 +208,7 @@ CheckXwfFunctions ()
          && XWF_GetItemType
          && XWF_GetNextEvObj
          && XWF_GetVolumeName
+         && XWF_OpenItem
          && XWF_OutputMessage
          && XWF_Read) ? 1 : 0;
 }
@@ -309,7 +334,7 @@ MyCreateFile (LPCWSTR lpFileName)
 
 // Copies a file from X-Ways to specified export_path
 BOOL
-ExportXwfFile (HANDLE hItem, LPCWSTR export_path, INT64 size)
+ExportXwfFile (HANDLE hItem, DWORD size, LPCWSTR export_path)
 {
     HANDLE file = MyCreateFile (export_path);
     if (INVALID_HANDLE_VALUE == file)
@@ -317,21 +342,74 @@ ExportXwfFile (HANDLE hItem, LPCWSTR export_path, INT64 size)
         return 0;
     }
 
-    LPVOID filebuf  = (LPVOID) malloc (size);
-    if (!filebuf)
+    BOOL rv = 0;
+    LPVOID filebuf = malloc (size);
+    if (filebuf)
     {
-        CloseHandle (file);
+        if (XWF_Read (hItem, 0, filebuf, size) == size)
+        {
+            rv = WriteFile (file, filebuf, size, NULL, NULL);
+        }
+        free (filebuf);
+    }
+
+    CloseHandle (file);
+    return rv;
+}
+
+BOOL
+GetXwfFileInfo (LONG nItemID, struct XtFile * file)
+{
+    // Converts WinAPI FILETIME to unix epoch time
+    #define GET_ITEM_TIME(x) (XWF_GetItemInformation (nItemID, (x), NULL) \
+                              / 10000000 - 11644473600LL)
+
+    file->created  = GET_ITEM_TIME (XWF_ITEM_INFO_CREATIONTIME);
+    file->accessed = GET_ITEM_TIME (XWF_ITEM_INFO_LASTACCESSTIME);
+    file->written  = GET_ITEM_TIME (XWF_ITEM_INFO_MODIFICATIONTIME);
+    if (0 > file->created)  file->created  = 0;
+    if (0 > file->accessed) file->accessed = 0;
+    if (0 > file->written)  file->written  = 0;
+
+    file->filesize = XWF_GetItemSize (nItemID);
+    if (1 > file->filesize)
+    {
+        // Should never happen for valid files, ignore
         return 0;
     }
 
-    XWF_Read (hItem, 0, filebuf, size);
+    file->id = nItemID;
 
-    BOOL rv = WriteFile (file, filebuf, size, NULL, NULL);
+    WCHAR filepath[MAX_PATH] = { 0 };
+    WCHAR filename[MAX_PATH] = { 0 };
 
-    CloseHandle (file);
-    free (filebuf);
+    // Recursively concatenate full file path
+    StringCchCopyW (filepath, MAX_PATH, XWF_GetItemName (nItemID));
+    LONG parent      = XWF_GetItemParent (nItemID);
+    LONG grandparent = parent;
 
-    return rv;
+    // Last valid parent item always is called "(Root directory)"
+    // We need to check parent and grandparent to discard this
+    if (-1 != parent)
+    {
+        grandparent = XWF_GetItemParent (parent);
+    }
+    while (-1 != grandparent)
+    {
+        StringCchCopyW (filename, MAX_PATH, XWF_GetItemName (parent));
+        PathCchAppend  (filename, MAX_PATH, filepath);
+        StringCchCopyW (filepath, MAX_PATH, filename);
+
+        parent = XWF_GetItemParent (parent);
+        if (-1 == parent)
+        {
+            break;
+        }
+        grandparent = XWF_GetItemParent (parent);
+    }
+    PathCchCombine (file->fullpath, MAX_PATH, current_volume->name_ex, filepath);
+
+    return 1;
 }
 
 BOOL
@@ -732,7 +810,17 @@ XT_Prepare (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         }
     }
 
+    // Find or create volume struct
     BOOL volume_exists = SetCurrentVolume (shortname);
+
+    // Allocate enough memory for all files
+    DWORD item_count = XWF_GetItemCount (NULL);
+    if (current_volume->file_ids)
+    {
+        free (current_volume->file_ids);
+    }
+    current_volume->file_ids = malloc (sizeof (struct XtFileId) * item_count);
+    current_volume->file_count = 0;
 
     // Update extended name for <fullpath> report tag
     StringCchCopyW (current_volume->name_ex, NAME_BUF_LEN, name_ex);
@@ -781,7 +869,7 @@ XT_Prepare (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
 
 // Called for every file
 EXPORT LONG XTAPI
-XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
+XT_ProcessItem (LONG nItemID, PVOID lpReserved)
 {
     // Silent fail condition
     if (L'\0' == export_dir[0])
@@ -820,87 +908,105 @@ XT_ProcessItemEx (LONG nItemID, HANDLE hItem, PVOID lpReserved)
         return 0;
     }
 
-    WCHAR filepath[MAX_PATH] = { 0 };
-    WCHAR filename[MAX_PATH] = { 0 };
+    // Enumerate file for further processing
+    INT64 fc = current_volume->file_count++;
+    current_volume->file_ids[fc].id   = nItemID;
+    current_volume->file_ids[fc].type = type;
 
-    // Grab all necessary metadata
-    struct XtFile fi = { 0 };
+    return 0;
+}
 
-    // Converts WinAPI FILETIME to unix epoch time
-    #define GET_ITEM_TIME(x) (XWF_GetItemInformation (nItemID, (x), NULL) \
-                              / 10000000 - 11644473600LL)
-
-    fi.created  = GET_ITEM_TIME (XWF_ITEM_INFO_CREATIONTIME);
-    fi.accessed = GET_ITEM_TIME (XWF_ITEM_INFO_LASTACCESSTIME);
-    fi.written  = GET_ITEM_TIME (XWF_ITEM_INFO_MODIFICATIONTIME);
-    if (0 > fi.created)  fi.created  = 0;
-    if (0 > fi.accessed) fi.accessed = 0;
-    if (0 > fi.written)  fi.written  = 0;
-
-    fi.filesize = XWF_GetItemSize (nItemID);
-    if (1 > fi.filesize)
+// Called after processing every volume
+EXPORT LONG XTAPI
+XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
+{
+    const INT64 fc = current_volume->file_count;
+    if(0 == fc || NULL == current_volume->file_ids)
     {
-        // Should never happen for valid files, ignore
         return 0;
     }
-
-    // Recursively concatenate full file path
-    StringCchCopyW (filepath, MAX_PATH, XWF_GetItemName (nItemID));
-    LONG parent      = XWF_GetItemParent (nItemID);
-    LONG grandparent = parent;
-
-    // Last valid parent item always is called "(Root directory)"
-    // We need to check parent and grandparent to discard this
-    if (-1 != parent)
+    // Allocate enough memory for relevant files
+    if (current_volume->files)
     {
-        grandparent = XWF_GetItemParent (parent);
+        free (current_volume->files);
     }
-    while (-1 != grandparent)
-    {
-        StringCchCopyW (filename, MAX_PATH, XWF_GetItemName (parent));
-        PathCchAppend  (filename, MAX_PATH, filepath);
-        StringCchCopyW (filepath, MAX_PATH, filename);
+    current_volume->files = malloc (sizeof (struct XtFile) * fc);
 
-        parent = XWF_GetItemParent (parent);
-        if (-1 == parent)
+    struct XtReport * report   = current_volume->report;
+    struct XtFileId * file_ids = current_volume->file_ids;
+    struct XtFile   * files    = current_volume->files;
+
+    // We will calculate progress by size, not by file count
+    INT64 total_size = 0;
+    
+    // Grab all necessary metadata
+    for (INT64 i = 0; i < fc; i++)
+    {
+        if (GetXwfFileInfo (file_ids[i].id, &files[i]))
         {
+            total_size += files[i].filesize;
+        }
+        else
+        {
+            files[i].id = -1;
+        }
+    }
+    // Export files
+    WCHAR filepath[MAX_PATH] = { 0 };
+    WCHAR filename[MAX_PATH] = { 0 };
+    for (INT64 i = 0; i < fc; i++)
+    {
+        if (-1 == files[i].id)
+        {
+            continue;
+        }
+        // filepath = root export directory for this evidence item
+        StringCchCopyW (filepath, MAX_PATH, report->export_path);
+        // filepath = filepath + [Pictures|Movies]
+        switch (file_ids[i].type)
+        {
+        case TYPE_PICTURE:
+            PathCchAppend (filepath, MAX_PATH, IMG_SUBDIR);
+            files[i].id = ++report->image_count;
+            XmlAppendImage (&files[i]);
+            break;
+        case TYPE_VIDEO:
+            PathCchAppend (filepath, MAX_PATH, VID_SUBDIR);
+            files[i].id = ++report->movie_count;
+            XmlAppendMovie (&files[i]);
             break;
         }
-        grandparent = XWF_GetItemParent (parent);
-    }
-    PathCchCombine (fi.fullpath, MAX_PATH, current_volume->name_ex, filepath);
+        // filepath = filepath + file number
+        StringCchPrintfW (filename, MAX_PATH, L"%lld", files[i].id);
+        PathCchAppend (filepath, MAX_PATH, filename);
 
-    // filepath = root export directory for this evidence item
-    StringCchCopyW (filepath, MAX_PATH, current_volume->report->export_path);
-    // filepath = filepath + [Pictures|Movies]
-    switch (type)
-    {
-    case TYPE_PICTURE:
-        PathCchAppend (filepath, MAX_PATH, IMG_SUBDIR);
-        fi.id = ++current_volume->report->image_count;
-        XmlAppendImage (&fi);
-        break;
-    case TYPE_VIDEO:
-        PathCchAppend (filepath, MAX_PATH, VID_SUBDIR);
-        fi.id = ++current_volume->report->movie_count;
-        XmlAppendMovie (&fi);
-        break;
+        // Since we are accessing file data outside of ProcessItemEx,
+        // we need to manually open and close the file handle.
+        HANDLE h = XWF_OpenItem (hVolume, file_ids[i].id, 1);
+        if (h)
+        {
+            if (ExportXwfFile (h, files[i].filesize, filepath))
+            {
+                XWF_AddToReportTable (files[i].id, REP_TABLE, 1);
+            }
+            else
+            {
+                XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension cou"
+                                    "ld not export file data. Aborting.", 2);
+            }
+            XWF_Close (h);
+        }
+        else
+        {
+            XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension could n"
+                                "ot access file data. Aborting.", 2);
+        }
     }
-    // filepath = filepath + file number
-    StringCchPrintfW (filename, MAX_PATH, L"%lld", fi.id);
-    PathCchAppend (filepath, MAX_PATH, filename);
 
-    if (!ExportXwfFile (hItem, filepath, fi.filesize))
-    {
-        XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension could not w"
-                            "rite to export directory. Aborting.", 2);
-        XWF_OutputMessage (L"Error on file:", 2);
-        XWF_OutputMessage (filepath, 3);
-    }
-    else
-    {
-        XWF_AddToReportTable (nItemID, REP_TABLE, 1);
-    }
+    free (current_volume->file_ids);
+    free (current_volume->files);
+    current_volume->file_ids = NULL;
+    current_volume->files    = NULL;
 
     return 0;
 }
@@ -914,8 +1020,7 @@ XT_Done (PVOID lpReserved)
 
     while (vol)
     {
-        vol->report->ref_count--;
-        if (0 == vol->report->ref_count)
+        if (vol->report && 1 == vol->report->ref_count--)
         {
             // This is the last reference, close tags and release files
             XmlWriteString (vol->report->xml_image_index, L"</ReportIndex>");
@@ -973,11 +1078,19 @@ XT_Done (PVOID lpReserved)
             LocalFree (movie_index);
 
             free (vol->report);
+            vol->report = NULL;
         }
+
+        free (vol->file_ids);
+        free (vol->files);
+        vol->file_ids = NULL;
+        vol->files    = NULL;
 
         tmp = vol;
         vol = vol->next;
+
         free (tmp);
+        tmp = NULL;
     }
 
     return 0;

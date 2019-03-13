@@ -1,6 +1,7 @@
 EXPORTS
 XT_About
 XT_Done
+XT_Finalize
 XT_Init
 XT_Prepare
-XT_ProcessItemEx
+XT_ProcessItem
