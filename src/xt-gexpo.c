@@ -415,6 +415,43 @@ MyPathAppend (PWSTR pszPath, size_t cchPath, PCWSTR pszMore)
 }
 
 BOOL
+IsCharOutOfXmlRange (WCHAR c)
+{
+    // Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+    switch (c)
+    {
+    case 0x09:
+    case 0x0a:
+    case 0x0d:
+        return 0;
+    }
+    if (0x000020 > c)                 return 1;
+    if (0x00d7ff < c && 0x00e000 > c) return 1;
+    if (0x00fffd < c && 0x010000 > c) return 1;
+    if (0x10ffff < c)                 return 1;
+    return 0;
+}
+
+// Replaces unsupported characters according to XML recommendation 1.0, §2.2
+VOID
+XmlSanitizeString (PWSTR str)
+{
+    if (NULL == str)
+    {
+        return;
+    }
+
+    size_t l = wcslen (str);
+    for (size_t i = 0; i < l; i++)
+    {
+        if (IsCharOutOfXmlRange (str[i]))
+        {
+            str[i] = L'_';
+        }
+    }
+}
+
+BOOL
 GetXwfFileInfo (LONG nItemID, struct XtFile * file)
 {
     // Converts WinAPI FILETIME to unix epoch time
@@ -466,6 +503,8 @@ GetXwfFileInfo (LONG nItemID, struct XtFile * file)
     }
     StringCchCopyW (file->fullpath, BIG_BUF_LEN, current_volume->name_ex);
     MyPathAppend   (file->fullpath, BIG_BUF_LEN, filepath);
+    
+    XmlSanitizeString (file->fullpath);
 
     return 1;
 }
