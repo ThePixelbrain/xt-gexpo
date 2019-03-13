@@ -34,6 +34,7 @@
 #define MIN_VER_S   L"17.6"
 
 #define NAME_BUF_LEN 256
+#define BIG_BUF_LEN  2048
 
 #define TYPE_OTHER   0
 #define TYPE_PICTURE 1
@@ -49,7 +50,7 @@ struct XtFile
     INT64 written;
     INT64 filesize;
 
-    WCHAR fullpath[MAX_PATH];
+    WCHAR fullpath[BIG_BUF_LEN];
 };
 
 // Decoupled report data
@@ -378,6 +379,41 @@ ExportXwfFile (HANDLE hItem, DWORD size, LPCWSTR export_path)
     return rv;
 }
 
+// A simpler implementation of PathCchAppendEx without extensive checks.
+// The WinAPI is too smart for our use case and can cut off path parts,
+// e.g. when the file name of an embedded file extracted by X-Ways contains
+// an absolute path including a drive letter.
+VOID
+MyPathAppend (PWSTR pszPath, size_t cchPath, PCWSTR pszMore)
+{
+    if (NULL == pszPath || NULL == pszMore)
+    {
+        return;
+    }
+
+    size_t l_path = wcslen (pszPath);
+    // Check if we have enough space for backslash and null terminator
+    if (cchPath - 1 < l_path + 1)
+    {
+        return;
+    }
+    // Append backslash if necessary
+    if (L'\\' != pszPath[l_path - 1] && L'\\' != pszMore[0])
+    {
+        pszPath[l_path++] = L'\\';
+    }
+    size_t i = 0;
+    while (cchPath - 1 > l_path)
+    {
+        if (L'\0' == pszMore[i])
+        {
+            break;
+        }
+        pszPath[l_path++] = pszMore[i++];
+    }
+    pszPath[l_path] = L'\0';
+}
+
 BOOL
 GetXwfFileInfo (LONG nItemID, struct XtFile * file)
 {
@@ -401,11 +437,11 @@ GetXwfFileInfo (LONG nItemID, struct XtFile * file)
 
     file->id = nItemID;
 
-    WCHAR filepath[MAX_PATH] = { 0 };
-    WCHAR filename[MAX_PATH] = { 0 };
+    WCHAR filepath[BIG_BUF_LEN] = { 0 };
+    WCHAR filename[BIG_BUF_LEN] = { 0 };
 
     // Recursively concatenate full file path
-    StringCchCopyW (filepath, MAX_PATH, XWF_GetItemName (nItemID));
+    StringCchCopyW (filepath, BIG_BUF_LEN, XWF_GetItemName (nItemID));
     LONG parent      = XWF_GetItemParent (nItemID);
     LONG grandparent = parent;
 
@@ -417,9 +453,9 @@ GetXwfFileInfo (LONG nItemID, struct XtFile * file)
     }
     while (-1 != grandparent)
     {
-        StringCchCopyW (filename, MAX_PATH, XWF_GetItemName (parent));
-        PathCchAppend  (filename, MAX_PATH, filepath);
-        StringCchCopyW (filepath, MAX_PATH, filename);
+        StringCchCopyW (filename, BIG_BUF_LEN, XWF_GetItemName (parent));
+        MyPathAppend   (filename, BIG_BUF_LEN, filepath);
+        StringCchCopyW (filepath, BIG_BUF_LEN, filename);
 
         parent = XWF_GetItemParent (parent);
         if (-1 == parent)
@@ -428,7 +464,8 @@ GetXwfFileInfo (LONG nItemID, struct XtFile * file)
         }
         grandparent = XWF_GetItemParent (parent);
     }
-    PathCchCombine (file->fullpath, MAX_PATH, current_volume->name_ex, filepath);
+    StringCchCopyW (file->fullpath, BIG_BUF_LEN, current_volume->name_ex);
+    MyPathAppend   (file->fullpath, BIG_BUF_LEN, filepath);
 
     return 1;
 }
