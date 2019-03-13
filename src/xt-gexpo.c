@@ -107,6 +107,8 @@ WCHAR export_dir[MAX_PATH]    = { 0 };
 int split_evidence_items = 0;
 int xwf_version = 0;
 
+HANDLE hXwfWnd = NULL;
+
 // X-Tension API
 // https://www.x-ways.net/forensics/x-tensions/api.html
 
@@ -257,6 +259,7 @@ BrowseForExportDir (LPWSTR dir)
 
     BROWSEINFOW bi = { 0 };
 
+    bi.hwndOwner = hXwfWnd;
     bi.lpszTitle = L"Griffeye XML export X-Tension\n\n"
                     "Please select the target directory:";
     bi.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
@@ -285,7 +288,7 @@ BrowseForExportDir (LPWSTR dir)
 
         if (ERROR_ALREADY_EXISTS == GetLastError ())
         {
-            MessageBoxW (NULL,
+            MessageBoxW (hXwfWnd,
                          L"The selected directory already contains a Griffeye"
                           " export folder. Plese select another directory.",
                          L"Notice",
@@ -293,7 +296,7 @@ BrowseForExportDir (LPWSTR dir)
         }
         else
         {
-            MessageBoxW (NULL,
+            MessageBoxW (hXwfWnd,
                          L"Could not create the Griffeye export folder here. "
                           "Please select another directory",
                          L"Error",
@@ -723,6 +726,8 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
         return 1;
     }
 
+    hXwfWnd = hMainWnd;
+
     // Get case name for our Case Report.xml
     // Also check if we have any case at all
     if (-1 == XWF_GetCaseProp (NULL, XWF_CASEPROP_TITLE,
@@ -771,7 +776,7 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
                        "m all evidence items. In any case, the file path will"
                        " include the name of the evidence item and volume.\n "
                        "\nDo you want to merge all exports into one?";
-        if (IDNO == MessageBoxW (NULL, msg, cap, MB_YESNO | MB_ICONINFORMATION))
+        if (IDNO == MessageBoxW (hXwfWnd, msg, cap, MB_YESNO | MB_ICONINFORMATION))
         {
             split_evidence_items = 1;
         }
@@ -1221,7 +1226,7 @@ XT_About (HANDLE hParentWnd, PVOID lpReserved)
                      "full file path starting with the evidence item name and"
                      " partition number.\n\nSource code available at:\nhttps:"
                      "//github.com/Naufragous/xt-gexpo\n\nAuthor: R. Yushaev";
-    MessageBoxW (NULL, about, L"About", MB_ICONINFORMATION);
+    MessageBoxW (hXwfWnd, about, L"About", MB_ICONINFORMATION);
 
     return 0;
 }
