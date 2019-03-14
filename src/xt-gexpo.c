@@ -1083,19 +1083,18 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         {
         case TYPE_PICTURE:
             PathCchAppend (filepath, MAX_PATH, IMG_SUBDIR);
-            files[i].id = ++report->image_count;
-            XmlAppendImage (&files[i]);
+            files[i].id = report->image_count + 1;
             break;
         case TYPE_VIDEO:
             PathCchAppend (filepath, MAX_PATH, VID_SUBDIR);
-            files[i].id = ++report->movie_count;
-            XmlAppendMovie (&files[i]);
+            files[i].id = report->movie_count + 1;
             break;
         }
         // filepath = filepath + file number
         StringCchPrintfW (filename, MAX_PATH, L"%lld", files[i].id);
         PathCchAppend (filepath, MAX_PATH, filename);
 
+        int export_successful = 0;
         // Since we are accessing file data outside of ProcessItemEx,
         // we need to manually open and close the file handle.
         HANDLE h = XWF_OpenItem (hVolume, file_ids[i].id, 1);
@@ -1103,6 +1102,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         {
             if (ExportXwfFile (h, files[i].filesize, filepath))
             {
+                export_successful = 1;
                 XWF_AddToReportTable (files[i].id, REP_TABLE, 1);
             }
             else
@@ -1117,6 +1117,22 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
             XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension could n"
                                 "ot access file data. Aborting.", 2);
         }
+        // Only add XML entry if at least some data was exported
+        if (export_successful)
+        {
+            switch (file_ids[i].type)
+            {
+            case TYPE_PICTURE:
+                report->image_count++;
+                XmlAppendImage (&files[i]);
+                break;
+            case TYPE_VIDEO:
+                report->movie_count++;
+                XmlAppendMovie (&files[i]);
+                break;
+            }
+        }
+        // Update progress bar in case of failure, too
         exported_size += files[i].filesize;
         XWF_SetProgressPercentage (exported_size * 100 / total_size);
     }
