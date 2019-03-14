@@ -66,6 +66,9 @@ struct XtReport
 
     UINT32 image_count;
     UINT32 movie_count;
+    UINT32 empty_count;
+    UINT32 size_mismatch_count;
+    UINT32 inaccessible_count;
 
     HANDLE xml_case_report;
     HANDLE xml_image_index;
@@ -450,6 +453,7 @@ GetXwfFileInfo (LONG nItemID, struct XtFile * file)
     if (1 > file->filesize)
     {
         // Should never happen for valid files, ignore
+        current_volume->report->empty_count++;
         return 0;
     }
 
@@ -1084,6 +1088,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         {
             // This happens when X-Ways cannot access the file contents
             XWF_AddToReportTable (files[i].id, REP_TABLE_FAILED, 1);
+            current_volume->report->inaccessible_count++;
         }
         else
         {
@@ -1105,6 +1110,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                 // Happens when X-Ways reports a filesize > 0 but the file
                 // reference does not contain any actual data.
                 free (filebuf);
+                current_volume->report->empty_count++;
             }
             else
             {
@@ -1137,6 +1143,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                     XWF_AddToReportTable (files[i].id, REP_TABLE_PARTIAL, 1);
                     // Store correct file size for XmlAppend*
                     files[i].filesize = actual_size;
+                    current_volume->report->size_mismatch_count++;
                 }
                 else
                 {
@@ -1200,6 +1207,27 @@ XT_Done (PVOID lpReserved)
                               vol->report->movie_count,
                               vol->report->export_path);
             XWF_OutputMessage (buf, 2);
+            if (vol->report->empty_count)
+            {
+                StringCchPrintfW (buf, 512,
+                                  L"  > %d empty files were ignored",
+                                  vol->report->empty_count);
+                XWF_OutputMessage (buf, 2);
+            }
+            if (vol->report->size_mismatch_count)
+            {
+                StringCchPrintfW (buf, 512,
+                                  L"  > %d files were smaller than expected (see report table)",
+                                  vol->report->size_mismatch_count);
+                XWF_OutputMessage (buf, 2);
+            }
+            if (vol->report->inaccessible_count)
+            {
+                StringCchPrintfW (buf, 512,
+                                  L"  > %d files were not accessible (see report table)",
+                                  vol->report->inaccessible_count);
+                XWF_OutputMessage (buf, 2);
+            }
 
             // Remove any empty export directories
             LPWSTR dir = vol->report->export_path;
