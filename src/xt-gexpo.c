@@ -24,7 +24,6 @@
 #include <strsafe.h>
 
 #define EXPORT_DIR  L"Griffeye export"
-#define REP_TABLE   L"[XT] Exported by xt-gexpo"
 #define IMG_SUBDIR  L"Pictures"
 #define VID_SUBDIR  L"Movies"
 #define CASE_REPORT L"Case Report.xml"
@@ -32,6 +31,10 @@
 #define VID_REPORT  L"C4M Index.xml"
 #define MIN_VER     1760
 #define MIN_VER_S   L"17.6"
+
+#define REP_TABLE_SUCCESS L"[XT][gexpo] exported"
+#define REP_TABLE_PARTIAL L"[XT][gexpo] exported (size mismatch)"
+#define REP_TABLE_FAILED  L"[XT][gexpo] could not read file"
 
 #define NAME_BUF_LEN 256
 #define BIG_BUF_LEN  2048
@@ -355,31 +358,6 @@ MyCreateFile (LPCWSTR lpFileName)
                         CREATE_NEW,
                         FILE_ATTRIBUTE_NORMAL,
                         NULL);
-}
-
-// Copies a file from X-Ways to specified export_path
-BOOL
-ExportXwfFile (HANDLE hItem, DWORD size, LPCWSTR export_path)
-{
-    HANDLE file = MyCreateFile (export_path);
-    if (INVALID_HANDLE_VALUE == file)
-    {
-        return 0;
-    }
-
-    BOOL rv = 0;
-    LPVOID filebuf = malloc (size);
-    if (filebuf)
-    {
-        if (XWF_Read (hItem, 0, filebuf, size) == size)
-        {
-            rv = WriteFile (file, filebuf, size, NULL, NULL);
-        }
-        free (filebuf);
-    }
-
-    CloseHandle (file);
-    return rv;
 }
 
 // A simpler implementation of PathCchAppendEx without extensive checks.
@@ -1044,6 +1022,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
 
     // Grab all necessary metadata
     XWF_ShowProgress (L"[XT] Collecting metadata", 4);
+    XWF_SetProgressPercentage (0);
     for (INT64 i = 0; i < fc; i++)
     {
         if (XWF_ShouldStop ())
@@ -1064,6 +1043,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
 
     // Export files
     XWF_ShowProgress (L"[XT] Exporting files", 4);
+    XWF_SetProgressPercentage (0);
     WCHAR filepath[MAX_PATH] = { 0 };
     WCHAR filename[MAX_PATH] = { 0 };
     for (INT64 i = 0; i < fc; i++)
@@ -1095,27 +1075,74 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         PathCchAppend (filepath, MAX_PATH, filename);
 
         int export_successful = 0;
+        // It is possible that we will get less bytes from XWF_Read
+        INT64 expected_size = files[i].filesize;
         // Since we are accessing file data outside of ProcessItemEx,
         // we need to manually open and close the file handle.
-        HANDLE h = XWF_OpenItem (hVolume, file_ids[i].id, 1);
-        if (h)
+        HANDLE hItem = XWF_OpenItem (hVolume, file_ids[i].id, 1);
+        if (0 == hItem)
         {
-            if (ExportXwfFile (h, files[i].filesize, filepath))
-            {
-                export_successful = 1;
-                XWF_AddToReportTable (files[i].id, REP_TABLE, 1);
-            }
-            else
-            {
-                XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension cou"
-                                    "ld not export file data. Aborting.", 2);
-            }
-            XWF_Close (h);
+            // This happens when X-Ways cannot access the file contents
+            XWF_AddToReportTable (files[i].id, REP_TABLE_FAILED, 1);
         }
         else
         {
-            XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension could n"
-                                "ot access file data. Aborting.", 2);
+            LPVOID filebuf = malloc (expected_size);
+            if (NULL == filebuf)
+            {
+                XWF_Close (hItem);
+                XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension cou"
+                                    "ld not allocate memory for file export. "
+                                    "Aborting.", 2);
+                XWF_HideProgress ();
+                return 0;
+            }
+            // Actual size can be less (or even zero)
+            DWORD actual_size = XWF_Read (hItem, 0, filebuf, expected_size);
+            XWF_Close (hItem);
+            if (0 == actual_size)
+            {
+                // Happens when X-Ways reports a filesize > 0 but the file
+                // reference does not contain any actual data.
+                free (filebuf);
+            }
+            else
+            {
+                HANDLE file = MyCreateFile (filepath);
+                if (INVALID_HANDLE_VALUE == file)
+                {
+                    free (filebuf);
+                    XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension cou"
+                                        "ld not create a file in the export direc"
+                                        "tory. Aborting.", 2);
+                    XWF_HideProgress ();
+                    return 0;
+                }
+
+                BOOL rv = WriteFile (file, filebuf, actual_size, NULL, NULL);
+                CloseHandle (file);
+                free (filebuf);
+                if (FALSE == rv)
+                {
+                    XWF_OutputMessage (L"ERROR: Griffeye XML export X-Ten"
+                                        "sion could not write to export d"
+                                        "irectory. Aborting.", 2);
+                    XWF_HideProgress ();
+                    return 0;
+                }
+                // If we came this far, at least some data has been exported
+                export_successful = 1;
+                if (actual_size < expected_size)
+                {
+                    XWF_AddToReportTable (files[i].id, REP_TABLE_PARTIAL, 1);
+                    // Store correct file size for XmlAppend*
+                    files[i].filesize = actual_size;
+                }
+                else
+                {
+                    XWF_AddToReportTable (files[i].id, REP_TABLE_SUCCESS, 1);
+                }
+            }
         }
         // Only add XML entry if at least some data was exported
         if (export_successful)
@@ -1132,8 +1159,8 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                 break;
             }
         }
-        // Update progress bar in case of failure, too
-        exported_size += files[i].filesize;
+        // Advance progress by expected file size regardless of result
+        exported_size += expected_size;
         XWF_SetProgressPercentage (exported_size * 100 / total_size);
     }
     XWF_HideProgress ();
