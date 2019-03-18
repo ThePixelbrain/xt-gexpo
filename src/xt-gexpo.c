@@ -704,7 +704,7 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
     {
         XWF_OutputMessage (L"NOTICE: Griffeye XML export X-Tension supports X"
                             "-Ways Forensics version "MIN_VER_S" or later onl"
-                            "y. Aborting.", 2);
+                            "y. Aborting.", 0);
         return 1;
     }
 
@@ -716,7 +716,7 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
                                case_name, NAME_BUF_LEN))
     {
         XWF_OutputMessage (L"NOTICE: Griffeye XML export X-Tension needs an a"
-                            "ctive case. Aborting.", 2);
+                            "ctive case. Aborting.", 0);
         return 1;
     }
     // Filter out any ]] to prevent XML errors
@@ -733,16 +733,19 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
     if (0 == BrowseForExportDir (export_dir))
     {
         XWF_OutputMessage (L"NOTICE: Griffeye XML export X-Tension needs a va"
-                            "lid export directory. Aborting.", 2);
+                            "lid export directory. Aborting.", 0);
         return 1;
     }
+
+    XWF_OutputMessage (L"Griffeye XML export target:", 0);
+    XWF_OutputMessage (export_dir, 1);
 
     HANDLE first_obj = XWF_GetFirstEvObj (NULL);
     if (!first_obj)
     {
         // Empty case
         XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension needs an ev"
-                            "idence item to work on. Aborting.", 2);
+                            "idence item to work on. Aborting.", 0);
         export_dir[0] = L'\0';
         return 1;
     }
@@ -781,13 +784,11 @@ XT_Init (DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void* LicInfo)
         if (0 == XmlCreateReportFiles (export_dir))
         {
             XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension could n"
-                                "ot create a file. Aborting.", 2);
+                                "ot create a file. Aborting.", 0);
             export_dir[0] = L'\0';
             return 1;
         }
     }
-
-    XWF_OutputMessage (L"Griffeye XML export X-Tension loaded.", 2);
 
     // 1: We are NOT thread-safe
     return 1;
@@ -808,7 +809,7 @@ XT_Prepare (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                             "posed to be executed from the Tools menu. Please"
                             " start the X-Tension from the directory browser "
                             "context menu or from the volume snapshot refinem"
-                            "ent dialog window.", 2);
+                            "ent dialog window.", 0);
         return -1; // Do not call any other X-Tension function
 
     case XT_ACTION_LSS:
@@ -816,7 +817,7 @@ XT_Prepare (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
     case XT_ACTION_SHC:
         XWF_OutputMessage (L"WARNING: Griffeye XML export X-Tension is not su"
                             "pposed to run during searches. The X-Tension wil"
-                            "l not be executed.", 2);
+                            "l not be executed.", 0);
         return -3; // Prevent further X-Tension use for this operation type
 
     case XT_ACTION_RVS:
@@ -833,7 +834,7 @@ XT_Prepare (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
 
     default:
         XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension does not su"
-                            "pport this mode of operation. Aborting.", 2);
+                            "pport this mode of operation. Aborting.", 0);
         return -1; // Do not call any other X-Tension function
     }
 
@@ -854,7 +855,7 @@ XT_Prepare (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
     // Short (type 2) name examples:
     //   ImageName
     //   ImageName, Partition 1
-    XWF_GetVolumeName (hVolume, shortname, 2);
+    XWF_GetVolumeName (hVolume, shortname, 0);
 
     // Store volume name before truncating
     StringCchCopyW (name_ex, NAME_BUF_LEN, shortname);
@@ -934,7 +935,7 @@ XT_Prepare (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         else
         {
             XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension could n"
-                                "ot create a file. Aborting.", 2);
+                                "ot create a file. Aborting.", 0);
             // Returning -1 would prevent the XT_Finalize call, use
             // silent fail condition in XT_ProcessItemEx instead.
             export_dir[0] = L'\0';
@@ -964,7 +965,7 @@ XT_ProcessItem (LONG nItemID, PVOID lpReserved)
     if (NULL == current_volume)
     {
         XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension could not a"
-                            "ssociate the file with a volume. Aborting.", 2);
+                            "ssociate the file with a volume. Aborting.", 0);
         return -1;
     }
 
@@ -1098,7 +1099,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                 XWF_Close (hItem);
                 XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension cou"
                                     "ld not allocate memory for file export. "
-                                    "Aborting.", 2);
+                                    "Aborting.", 0);
                 XWF_HideProgress ();
                 return 0;
             }
@@ -1120,7 +1121,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                     free (filebuf);
                     XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension cou"
                                         "ld not create a file in the export direc"
-                                        "tory. Aborting.", 2);
+                                        "tory. Aborting.", 0);
                     XWF_HideProgress ();
                     return 0;
                 }
@@ -1132,7 +1133,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                 {
                     XWF_OutputMessage (L"ERROR: Griffeye XML export X-Ten"
                                         "sion could not write to export d"
-                                        "irectory. Aborting.", 2);
+                                        "irectory. Aborting.", 0);
                     XWF_HideProgress ();
                     return 0;
                 }
@@ -1202,31 +1203,32 @@ XT_Done (PVOID lpReserved)
             // One log entry per evidence item
             WCHAR buf[512];
             StringCchPrintfW (buf, 512,
-                              L"Exported %d images and %d videos to %s",
+                              L"Exported %d images and %d videos",
                               vol->report->image_count,
-                              vol->report->movie_count,
-                              vol->report->export_path);
-            XWF_OutputMessage (buf, 2);
-            if (vol->report->empty_count)
-            {
-                StringCchPrintfW (buf, 512,
-                                  L"  > %d empty files were ignored",
-                                  vol->report->empty_count);
-                XWF_OutputMessage (buf, 2);
-            }
+                              vol->report->movie_count);
+            XWF_OutputMessage (buf, 0);
             if (vol->report->size_mismatch_count)
             {
                 StringCchPrintfW (buf, 512,
-                                  L"  > %d files were smaller than expected (see report table)",
+                                  L"[*] including %d files with inaccurate si"
+                                   "ze (see report table)",
                                   vol->report->size_mismatch_count);
-                XWF_OutputMessage (buf, 2);
+                XWF_OutputMessage (buf, 0);
             }
             if (vol->report->inaccessible_count)
             {
                 StringCchPrintfW (buf, 512,
-                                  L"  > %d files were not accessible (see report table)",
+                                  L"[*] excluding %d inaccessible files (see "
+                                    "report table)",
                                   vol->report->inaccessible_count);
-                XWF_OutputMessage (buf, 2);
+                XWF_OutputMessage (buf, 0);
+            }
+            if (vol->report->empty_count)
+            {
+                StringCchPrintfW (buf, 512,
+                                  L"[*] excluding %d empty files",
+                                  vol->report->empty_count);
+                XWF_OutputMessage (buf, 0);
             }
 
             // Remove any empty export directories
