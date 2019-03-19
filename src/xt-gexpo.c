@@ -1053,7 +1053,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
     {
         if (XWF_ShouldStop ())
         {
-            return 0;
+            return 1;
         }
         if (-1 == files[i].export_id)
         {
@@ -1099,7 +1099,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                                     "ld not allocate memory for file export. "
                                     "Aborting.", 0);
                 XWF_HideProgress ();
-                return 0;
+                return 1;
             }
             // Actual size can be less (or even zero)
             DWORD actual_size = XWF_Read (hItem, 0, filebuf, expected_size);
@@ -1121,7 +1121,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                                         "ld not create a file in the export direc"
                                         "tory. Aborting.", 0);
                     XWF_HideProgress ();
-                    return 0;
+                    return 1;
                 }
 
                 BOOL rv = WriteFile (file, filebuf, actual_size, NULL, NULL);
@@ -1133,7 +1133,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                                         "sion could not write to export d"
                                         "irectory. Aborting.", 0);
                     XWF_HideProgress ();
-                    return 0;
+                    return 1;
                 }
                 // If we came this far, at least some data has been exported
                 export_successful = 1;
@@ -1176,7 +1176,10 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
     current_volume->file_ids = NULL;
     current_volume->files    = NULL;
 
-    return 0;
+    // Return 1 to refresh current directory listing.
+    // This is necessary if you want to immediately display
+    // new report table associations.
+    return 1;
 }
 
 // Called once after processing all volumes
