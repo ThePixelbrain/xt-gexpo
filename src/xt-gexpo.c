@@ -47,7 +47,7 @@
 
 struct XtFile
 {
-    INT64 id;
+    INT64 export_id;
     INT64 created;
     INT64 accessed;
     INT64 written;
@@ -80,7 +80,7 @@ struct XtReport
 // Small struct for file enumeration
 struct XtFileId
 {
-    INT64 id;
+    INT64 xwf_id;
     int type;
 };
 
@@ -457,8 +457,6 @@ GetXwfFileInfo (LONG nItemID, struct XtFile * file)
         return 0;
     }
 
-    file->id = nItemID;
-
     WCHAR filepath[BIG_BUF_LEN] = { 0 };
     WCHAR filename[BIG_BUF_LEN] = { 0 };
 
@@ -566,7 +564,7 @@ XmlWriteXtFile (HANDLE file, struct XtFile * xf,
     WCHAR wtime[32] = { 0 };
     WCHAR size[32]  = { 0 };
 
-    StringCchPrintfW (id,    32, L"%lld", xf->id);
+    StringCchPrintfW (id,    32, L"%lld", xf->export_id);
     StringCchPrintfW (ctime, 32, L"%lld", xf->created);
     StringCchPrintfW (atime, 32, L"%lld", xf->accessed);
     StringCchPrintfW (wtime, 32, L"%lld", xf->written);
@@ -995,8 +993,8 @@ XT_ProcessItem (LONG nItemID, PVOID lpReserved)
 
     // Enumerate file for further processing
     INT64 fc = current_volume->file_count++;
-    current_volume->file_ids[fc].id   = nItemID;
-    current_volume->file_ids[fc].type = type;
+    current_volume->file_ids[fc].xwf_id = nItemID;
+    current_volume->file_ids[fc].type   = type;
 
     return 0;
 }
@@ -1034,13 +1032,13 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         {
             return 0;
         }
-        if (GetXwfFileInfo (file_ids[i].id, &files[i]))
+        if (GetXwfFileInfo (file_ids[i].xwf_id, &files[i]))
         {
             total_size += files[i].filesize;
         }
         else
         {
-            files[i].id = -1;
+            files[i].export_id = -1;
         }
         XWF_SetProgressPercentage ((i + 1) * 100 / fc);
     }
@@ -1057,7 +1055,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         {
             return 0;
         }
-        if (-1 == files[i].id)
+        if (-1 == files[i].export_id)
         {
             continue;
         }
@@ -1068,15 +1066,15 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         {
         case TYPE_PICTURE:
             PathCchAppend (filepath, MAX_PATH, IMG_SUBDIR);
-            files[i].id = report->image_count + 1;
+            files[i].export_id = report->image_count + 1;
             break;
         case TYPE_VIDEO:
             PathCchAppend (filepath, MAX_PATH, VID_SUBDIR);
-            files[i].id = report->movie_count + 1;
+            files[i].export_id = report->movie_count + 1;
             break;
         }
         // filepath = filepath + file number
-        StringCchPrintfW (filename, MAX_PATH, L"%lld", files[i].id);
+        StringCchPrintfW (filename, MAX_PATH, L"%lld", files[i].export_id);
         PathCchAppend (filepath, MAX_PATH, filename);
 
         int export_successful = 0;
@@ -1084,11 +1082,11 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         INT64 expected_size = files[i].filesize;
         // Since we are accessing file data outside of ProcessItemEx,
         // we need to manually open and close the file handle.
-        HANDLE hItem = XWF_OpenItem (hVolume, file_ids[i].id, 1);
+        HANDLE hItem = XWF_OpenItem (hVolume, file_ids[i].xwf_id, 1);
         if (0 == hItem)
         {
             // This happens when X-Ways cannot access the file contents
-            XWF_AddToReportTable (files[i].id, REP_TABLE_FAILED, 1);
+            XWF_AddToReportTable (file_ids[i].xwf_id, REP_TABLE_FAILED, 1);
             current_volume->report->inaccessible_count++;
         }
         else
@@ -1141,14 +1139,14 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                 export_successful = 1;
                 if (actual_size < expected_size)
                 {
-                    XWF_AddToReportTable (files[i].id, REP_TABLE_PARTIAL, 1);
+                    XWF_AddToReportTable (file_ids[i].xwf_id, REP_TABLE_PARTIAL, 1);
                     // Store correct file size for XmlAppend*
                     files[i].filesize = actual_size;
                     current_volume->report->size_mismatch_count++;
                 }
                 else
                 {
-                    XWF_AddToReportTable (files[i].id, REP_TABLE_SUCCESS, 1);
+                    XWF_AddToReportTable (file_ids[i].xwf_id, REP_TABLE_SUCCESS, 1);
                 }
             }
         }
