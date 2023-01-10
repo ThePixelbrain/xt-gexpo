@@ -33,7 +33,6 @@
 #define MIN_VER_S   L"17.6"
 
 #define REP_TABLE_SUCCESS L"[XT][gexpo] exported"
-#define REP_TABLE_PARTIAL L"[XT][gexpo] exported (size mismatch)"
 #define REP_TABLE_FAILED  L"[XT][gexpo] could not read file"
 
 #define NAME_BUF_LEN 256
@@ -42,6 +41,11 @@
 #define TYPE_OTHER   0
 #define TYPE_PICTURE 1
 #define TYPE_VIDEO   2
+
+//1 * 1024 * 1024 * 1024 = 1.073.741.824 = 1GB --> size of data that is used to read and write large files
+#define FILE_CHUNK 1073741824
+//2 * 1024 * 1024 * 1024 = 2.147.483.648 = 2GB, this variable is used to determine what is considered a "large" file
+#define FILE_2GB 2147483648
 
 #define EXPORT __declspec (dllexport)
 
@@ -1091,78 +1095,115 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
         }
         else
         {
-            LPVOID filebuf = malloc (expected_size);
-            if (NULL == filebuf)
-            {
-                XWF_Close (hItem);
-                XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension cou"
-                                    "ld not allocate memory for file export. "
-                                    "Aborting.", 0);
-                XWF_HideProgress ();
-                return 1;
-            }
-            // Actual size can be less (or even zero)
-            DWORD actual_size = XWF_Read (hItem, 0, filebuf, expected_size);
-            XWF_Close (hItem);
-            if (0 == actual_size)
-            {
-                // Happens when X-Ways reports a filesize > 0 but the file
-                // reference does not contain any actual data.
-                free (filebuf);
-                current_volume->report->empty_count++;
-            }
-            else
-            {
-                HANDLE file = MyCreateFile (filepath);
-                if (INVALID_HANDLE_VALUE == file)
-                {
-                    free (filebuf);
-                    XWF_OutputMessage (L"ERROR: Griffeye XML export X-Tension cou"
-                                        "ld not create a file in the export direc"
-                                        "tory. Aborting.", 0);
-                    XWF_HideProgress ();
-                    return 1;
-                }
+            // declare all variables we need for reading the current file...
+            INT64 i64DataSizeRead = 0;       //amount of data of the current file that has already been processed
+            INT64 i64DataSizeToRead = 0;     //determines how much data to read in this iteration
+            HANDLE file = MyCreateFile(filepath);
+            DWORD actual_size = 0;
 
-                BOOL rv = WriteFile (file, filebuf, actual_size, NULL, NULL);
-                CloseHandle (file);
-                free (filebuf);
-                if (FALSE == rv)
+            // Start of loop for exporting files...
+            while ((i64DataSizeRead < expected_size))
+            {
+                //if expected size - already read data >= chunk of data we want to read  --> we can still read a full chunk of data
+                //else read however much is left of the file
+                if (expected_size - i64DataSizeRead >= FILE_CHUNK)
                 {
-                    XWF_OutputMessage (L"ERROR: Griffeye XML export X-Ten"
-                                        "sion could not write to export d"
-                                        "irectory. Aborting.", 0);
-                    XWF_HideProgress ();
-                    return 1;
-                }
-                // If we came this far, at least some data has been exported
-                export_successful = 1;
-                if (actual_size < expected_size)
-                {
-                    XWF_AddToReportTable (file_ids[i].xwf_id, REP_TABLE_PARTIAL, 1);
-                    // Store correct file size for XmlAppend*
-                    files[i].filesize = actual_size;
-                    current_volume->report->size_mismatch_count++;
+                    i64DataSizeToRead = FILE_CHUNK;
                 }
                 else
                 {
-                    XWF_AddToReportTable (file_ids[i].xwf_id, REP_TABLE_SUCCESS, 1);
+                    i64DataSizeToRead = expected_size - i64DataSizeRead;
                 }
-            }
-        }
+
+                //allocate memory
+                LPVOID filebuf = malloc(i64DataSizeToRead);
+
+                if (NULL == filebuf)
+                {
+                    XWF_Close(hItem);
+                    XWF_OutputMessage(L"ERROR: Griffeye XML export X-Tension cou"
+                                      "ld not allocate memory for file export. "
+                                      "Aborting.", 0);
+
+                    // print erroring file
+                    // implicit conversion of wchar array to wstring pointer
+                    LPWSTR FileErrorPath = files[i].fullpath;
+                    XWF_OutputMessage(FileErrorPath, 0);
+
+                    XWF_HideProgress();
+                    return 1;
+                }
+
+                // Actual size can be less (or even zero)
+                actual_size = XWF_Read(hItem, i64DataSizeRead, filebuf, i64DataSizeToRead);
+                //remove the following "if" as soon as XWF_Read return value is fixed
+                //only overwrite actual_size if file is considered to be large because XWF_Read is returning 0 in that case --> should be fixed in future releases of X-Ways according to S. Fleischmann
+                if ((actual_size == 0) && (expected_size >= FILE_2GB))
+                {
+                    actual_size = i64DataSizeToRead;
+                }
+
+                //remember the amount of data we just read, to be able to calculate how much to read in the next iteration
+                i64DataSizeRead = i64DataSizeRead + i64DataSizeToRead;
+
+                if (0 == actual_size)
+                {
+                    // Happens when X-Ways reports a filesize > 0 but the file
+                    // reference does not contain any actual data.
+                    free(filebuf);
+                    current_volume->report->empty_count++;
+                    XWF_Close(hItem);
+                }
+                else
+                {
+                    if (INVALID_HANDLE_VALUE == file)
+                    {
+                        XWF_Close(hItem);
+                        free(filebuf);
+                        XWF_OutputMessage(L"ERROR: Griffeye XML export X-Tension cou"
+                                          "ld not create a file in the export direc"
+                                          "tory. Aborting.", 0);
+
+                        XWF_HideProgress();
+                        return 1;
+                    }
+
+                    BOOL rv = WriteFile(file, filebuf, actual_size, NULL, NULL);
+                    free(filebuf);
+
+                    if (FALSE == rv)
+                    {
+                        CloseHandle(file);
+                        XWF_OutputMessage(L"ERROR: Griffeye XML export X-Ten"
+                                          "sion could not write to export d"
+                                          "irectory. Aborting.", 0);
+                        XWF_HideProgress();
+                        return 1;
+                    }
+                    // If we came this far, at least some data has been exported
+                    export_successful = 1;
+                }//XWF_Read return > 0
+            } //while loop exporting file
+
+            CloseHandle(file);
+
+            XWF_AddToReportTable(file_ids[i].xwf_id, REP_TABLE_SUCCESS, 1);
+
+        }//XWF could access current file
+
         // Only add XML entry if at least some data was exported
         if (export_successful)
         {
             switch (file_ids[i].type)
             {
-            case TYPE_PICTURE:
-                report->image_count++;
-                XmlAppendImage (&files[i]);
-                break;
-            case TYPE_VIDEO:
-                report->movie_count++;
-                XmlAppendMovie (&files[i]);
-                break;
+                case TYPE_PICTURE:
+                    report->image_count++;
+                    XmlAppendImage (&files[i]);
+                    break;
+                case TYPE_VIDEO:
+                    report->movie_count++;
+                    XmlAppendMovie (&files[i]);
+                    break;
             }
         }
         // Advance progress by expected file size regardless of result
