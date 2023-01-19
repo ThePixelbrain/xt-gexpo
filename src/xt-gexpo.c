@@ -25,7 +25,9 @@
 #include <Shlobj.h>
 #include <strsafe.h>
 
-#define EXPORT_DIR  L"Griffeye export"
+#define EXPORT_DIR  L"Griffeye Export"
+#define EXISTING_SUBDIR L"Existing"
+#define PREV_EXISTING_SUBDIR L"Previously existing"
 #define IMG_SUBDIR  L"Pictures"
 #define VID_SUBDIR  L"Movies"
 #define CASE_REPORT L"Case Report.xml"
@@ -104,6 +106,9 @@ struct XtVolume {
     // Evidence item + current volume (partition)
     // Used in the <fullpath> tags of file indexes
     WCHAR name_ex[NAME_BUF_LEN];
+
+    PWSTR existing_dir;
+    PWSTR prev_existing_dir;
 };
 
 struct XtVolume *first_volume = NULL;
@@ -111,6 +116,8 @@ struct XtVolume *current_volume = NULL;
 
 WCHAR case_name[NAME_BUF_LEN] = {0};
 WCHAR export_dir[MAX_PATH] = {0};
+WCHAR export_dir_existing[MAX_PATH] = {0};
+WCHAR export_dir_prev_existing[MAX_PATH] = {0};
 
 int split_evidence_items = 0;
 int xwf_version = 0;
@@ -302,6 +309,8 @@ BrowseForExportDir(LPWSTR dir) {
     // Recursively prompt until we can create the export directory at the
     // selected path.
     PWSTR new_dir = NULL;
+    PWSTR existing_subdir = NULL;
+    PWSTR prev_existing_subdir = NULL;
     PathAllocCombine(dir, EXPORT_DIR, 0, &new_dir);
     if (!CreateDirectoryW(new_dir, NULL)) {
         LocalFree(new_dir);
@@ -322,9 +331,19 @@ BrowseForExportDir(LPWSTR dir) {
         return BrowseForExportDir(dir);
     }
 
+    PathAllocCombine(new_dir, EXISTING_SUBDIR, 0, &existing_subdir);
+    PathAllocCombine(new_dir, PREV_EXISTING_SUBDIR, 0, &prev_existing_subdir);
+
+    CreateDirectoryW(existing_subdir, NULL);
+    CreateDirectoryW(prev_existing_subdir, NULL);
+
     StringCchCopyW(dir, MAX_PATH, new_dir);
+    StringCchCopyW(export_dir_existing, MAX_PATH, existing_subdir);
+    StringCchCopyW(export_dir_prev_existing, MAX_PATH, export_dir_prev_existing);
 
     LocalFree(new_dir);
+    LocalFree(existing_subdir);
+    LocalFree(prev_existing_subdir);
 
     return 1;
 }
@@ -871,7 +890,7 @@ XT_Prepare(HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved) {
     // already created in XT_Init.
     if (split_evidence_items) {
         PWSTR volume_dir = NULL;
-        PathAllocCombine(export_dir, current_volume->name, 0, &volume_dir);
+        PathAllocCombine(export_dir_existing, current_volume->name, 0, &volume_dir);
         BOOL success = XmlCreateReportFiles(volume_dir);
         LocalFree(volume_dir);
 
