@@ -1098,7 +1098,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
             // declare all variables we need for reading the current file...
             INT64 i64DataSizeRead = 0;       //amount of data of the current file that has already been processed
             INT64 i64DataSizeToRead = 0;     //determines how much data to read in this iteration
-            HANDLE file = MyCreateFile(filepath);
+            HANDLE file = NULL;
             DWORD actual_size = 0;
 
             // Start of loop for exporting files...
@@ -1156,6 +1156,10 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                 }
                 else
                 {
+                    // Create file on first iteration, but only when we are actually going to export data
+                    if (NULL == file) {
+                        file = MyCreateFile(filepath);
+                    }
                     if (INVALID_HANDLE_VALUE == file)
                     {
                         XWF_Close(hItem);
