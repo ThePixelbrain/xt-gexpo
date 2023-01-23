@@ -27,7 +27,7 @@
 
 #define EXPORT_DIR  L"Griffeye Export"
 #define EXISTING_SUBDIR L"Existing"
-#define PREV_EXISTING_SUBDIR L"Previously existing"
+#define DELETED_SUBDIR L"Deleted"
 #define IMG_SUBDIR  L"Pictures"
 #define VID_SUBDIR  L"Movies"
 #define CASE_REPORT L"Case Report.xml"
@@ -51,6 +51,9 @@
 //2 * 1024 * 1024 * 1024 = 2.147.483.648 = 2GB, this variable is used to determine what is considered a "large" file
 #define FILE_2GB 2147483648
 
+#define REPORT_TYPE_EXISTING 0
+#define REPORT_TYPE_DELETED 1
+
 #define EXPORT __declspec (dllexport)
 
 struct XtFile {
@@ -59,6 +62,7 @@ struct XtFile {
     INT64 accessed;
     INT64 written;
     INT64 filesize;
+    INT16 deleted;
 
     WCHAR fullpath[BIG_BUF_LEN];
 };
@@ -91,7 +95,8 @@ struct XtFileId {
 
 struct XtVolume {
     struct XtVolume *next;
-    struct XtReport *report;
+    struct XtReport *report_existing;
+    struct XtReport *report_deleted;
 
     struct XtFileId *file_ids;
     struct XtFile *files;
@@ -106,9 +111,6 @@ struct XtVolume {
     // Evidence item + current volume (partition)
     // Used in the <fullpath> tags of file indexes
     WCHAR name_ex[NAME_BUF_LEN];
-
-    PWSTR existing_dir;
-    PWSTR prev_existing_dir;
 };
 
 struct XtVolume *first_volume = NULL;
@@ -117,7 +119,7 @@ struct XtVolume *current_volume = NULL;
 WCHAR case_name[NAME_BUF_LEN] = {0};
 WCHAR export_dir[MAX_PATH] = {0};
 WCHAR export_dir_existing[MAX_PATH] = {0};
-WCHAR export_dir_prev_existing[MAX_PATH] = {0};
+WCHAR export_dir_deleted[MAX_PATH] = {0};
 
 int split_evidence_items = 0;
 int xwf_version = 0;
@@ -146,6 +148,7 @@ HANDLE hXwfWnd = NULL;
 #define XT_PREPARE_CALLPI     0x01
 #define XT_PREPARE_CALLPILATE 0x02
 
+#define XWF_ITEM_INFO_DELETION 4
 #define XWF_ITEM_INFO_CREATIONTIME     32
 #define XWF_ITEM_INFO_MODIFICATIONTIME 33
 #define XWF_ITEM_INFO_LASTACCESSTIME   34
@@ -310,7 +313,7 @@ BrowseForExportDir(LPWSTR dir) {
     // selected path.
     PWSTR new_dir = NULL;
     PWSTR existing_subdir = NULL;
-    PWSTR prev_existing_subdir = NULL;
+    PWSTR deleted_subdir = NULL;
     PathAllocCombine(dir, EXPORT_DIR, 0, &new_dir);
     if (!CreateDirectoryW(new_dir, NULL)) {
         LocalFree(new_dir);
@@ -332,18 +335,18 @@ BrowseForExportDir(LPWSTR dir) {
     }
 
     PathAllocCombine(new_dir, EXISTING_SUBDIR, 0, &existing_subdir);
-    PathAllocCombine(new_dir, PREV_EXISTING_SUBDIR, 0, &prev_existing_subdir);
+    PathAllocCombine(new_dir, DELETED_SUBDIR, 0, &deleted_subdir);
 
     CreateDirectoryW(existing_subdir, NULL);
-    CreateDirectoryW(prev_existing_subdir, NULL);
+    CreateDirectoryW(deleted_subdir, NULL);
 
     StringCchCopyW(dir, MAX_PATH, new_dir);
     StringCchCopyW(export_dir_existing, MAX_PATH, existing_subdir);
-    StringCchCopyW(export_dir_prev_existing, MAX_PATH, export_dir_prev_existing);
+    StringCchCopyW(export_dir_deleted, MAX_PATH, deleted_subdir);
 
     LocalFree(new_dir);
     LocalFree(existing_subdir);
-    LocalFree(prev_existing_subdir);
+    LocalFree(deleted_subdir);
 
     return 1;
 }
@@ -459,10 +462,15 @@ GetXwfFileInfo(LONG nItemID, struct XtFile *file) {
     if (0 > file->accessed) file->accessed = 0;
     if (0 > file->written) file->written = 0;
 
+    file->deleted = XWF_GetItemInformation(nItemID, XWF_ITEM_INFO_DELETION, NULL);
+
+    // Selects correct report depending on file deletion status
+    struct XtReport *report = file->deleted == 0 ? current_volume->report_existing : current_volume->report_deleted;
+
     file->filesize = XWF_GetItemSize(nItemID);
     if (1 > file->filesize) {
         // Should never happen for valid files, ignore
-        current_volume->report->empty_count++;
+        report->empty_count++;
         return 0;
     }
 
@@ -605,8 +613,7 @@ XmlWriteXtFile(HANDLE file, struct XtFile *xf,
 // Returns 1 if all directories and files were created
 // Returns 0 otherwise
 BOOL
-XmlCreateReportFiles(LPCWSTR dir) {
-    PWSTR volume_dir = NULL;
+XmlCreateReportFiles(LPCWSTR dir, struct XtReport *report) {
     PWSTR img_subdir = NULL;
     PWSTR vid_subdir = NULL;
     PWSTR case_report = NULL;
@@ -623,12 +630,11 @@ XmlCreateReportFiles(LPCWSTR dir) {
     CreateDirectoryW(img_subdir, NULL);
     CreateDirectoryW(vid_subdir, NULL);
 
-    current_volume->report = calloc(1, sizeof(struct XtReport));
-    current_volume->report->ref_count = 1;
-    current_volume->report->xml_case_report = MyCreateFile(case_report);
-    current_volume->report->xml_image_index = MyCreateFile(image_index);
-    current_volume->report->xml_movie_index = MyCreateFile(movie_index);
-    StringCchCopyW(current_volume->report->export_path, MAX_PATH, dir);
+    report->ref_count = 1;
+    report->xml_case_report = MyCreateFile(case_report);
+    report->xml_image_index = MyCreateFile(image_index);
+    report->xml_movie_index = MyCreateFile(movie_index);
+    StringCchCopyW(report->export_path, MAX_PATH, dir);
 
     LocalFree(img_subdir);
     LocalFree(vid_subdir);
@@ -636,29 +642,109 @@ XmlCreateReportFiles(LPCWSTR dir) {
     LocalFree(image_index);
     LocalFree(movie_index);
 
-    if (INVALID_HANDLE_VALUE == current_volume->report->xml_case_report
-        || INVALID_HANDLE_VALUE == current_volume->report->xml_image_index
-        || INVALID_HANDLE_VALUE == current_volume->report->xml_movie_index) {
+    if (INVALID_HANDLE_VALUE == report->xml_case_report
+        || INVALID_HANDLE_VALUE == report->xml_image_index
+        || INVALID_HANDLE_VALUE == report->xml_movie_index) {
         return 0;
     }
 
-    XmlWriteReport(current_volume->report->xml_case_report);
-    XmlWriteIndex(current_volume->report->xml_image_index);
-    XmlWriteIndex(current_volume->report->xml_movie_index);
+    XmlWriteReport(report->xml_case_report);
+    XmlWriteIndex(report->xml_image_index);
+    XmlWriteIndex(report->xml_movie_index);
 
     return 1;
 }
 
 BOOL
-XmlAppendImage(struct XtFile *xf) {
-    return XmlWriteXtFile(current_volume->report->xml_image_index, xf,
+XmlAppendImage(struct XtFile *xf, struct XtReport *report) {
+    return XmlWriteXtFile(report->xml_image_index, xf,
                           L"Image", L"picture", IMG_SUBDIR);
 }
 
 BOOL
-XmlAppendMovie(struct XtFile *xf) {
-    return XmlWriteXtFile(current_volume->report->xml_movie_index, xf,
+XmlAppendMovie(struct XtFile *xf, struct XtReport *report) {
+    return XmlWriteXtFile(report->xml_movie_index, xf,
                           L"Movie", L"movie", VID_SUBDIR);
+}
+
+void
+XmlFinishReport(struct XtReport *report, BOOL report_type, PWSTR evidence_name) {
+    if (report && 1 == report->ref_count--) {
+        // This is the last reference, close tags and release files
+        XmlWriteString(report->xml_image_index, L"</ReportIndex>");
+        XmlWriteString(report->xml_movie_index, L"</ReportIndex>");
+
+        CloseHandle(report->xml_case_report);
+        CloseHandle(report->xml_image_index);
+        CloseHandle(report->xml_movie_index);
+
+        // One log entry per evidence item
+        WCHAR buf[512];
+        LPCWSTR info_text =
+                report_type == REPORT_TYPE_EXISTING ? L"[%ls]: Exported %d images and %d videos from existing files"
+                                                    : L"[%ls]: Exported %d images and %d videos from deleted files";
+        StringCchPrintfW(buf, 512,
+                         info_text,
+                         evidence_name,
+                         report->image_count,
+                         report->movie_count);
+        XWF_OutputMessage(buf, 0);
+        if (report->size_mismatch_count) {
+            StringCchPrintfW(buf, 512,
+                             L"[*] including %d files with inaccurate si"
+                             "ze (see report table)",
+                             report->size_mismatch_count);
+            XWF_OutputMessage(buf, 0);
+        }
+        if (report->inaccessible_count) {
+            StringCchPrintfW(buf, 512,
+                             L"[*] excluding %d inaccessible files (see "
+                             "report table)",
+                             report->inaccessible_count);
+            XWF_OutputMessage(buf, 0);
+        }
+        if (report->empty_count) {
+            StringCchPrintfW(buf, 512,
+                             L"[*] excluding %d empty files",
+                             report->empty_count);
+            XWF_OutputMessage(buf, 0);
+        }
+
+        // Remove any empty export directories
+        LPWSTR dir = report->export_path;
+
+        PWSTR img_subdir = NULL;
+        PWSTR vid_subdir = NULL;
+        PWSTR case_report = NULL;
+        PWSTR image_index = NULL;
+        PWSTR movie_index = NULL;
+
+        PathAllocCombine(dir, IMG_SUBDIR, 0, &img_subdir);
+        PathAllocCombine(dir, VID_SUBDIR, 0, &vid_subdir);
+        PathAllocCombine(dir, CASE_REPORT, 0, &case_report);
+        PathAllocCombine(dir, IMG_REPORT, 0, &image_index);
+        PathAllocCombine(dir, VID_REPORT, 0, &movie_index);
+
+        if (0 == report->image_count) {
+            DeleteFileW(image_index);
+            RemoveDirectoryW(img_subdir);
+        }
+        if (0 == report->movie_count) {
+            DeleteFileW(movie_index);
+            RemoveDirectoryW(vid_subdir);
+        }
+        if (0 == report->image_count
+            && 0 == report->movie_count) {
+            DeleteFileW(case_report);
+            RemoveDirectoryW(dir);
+        }
+
+        LocalFree(img_subdir);
+        LocalFree(vid_subdir);
+        LocalFree(case_report);
+        LocalFree(image_index);
+        LocalFree(movie_index);
+    }
 }
 
 // Executed once before processing
@@ -759,7 +845,7 @@ XT_Init(DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void *LicInfo) {
         // link to the global XtReport structure.
         current_volume = calloc(1, sizeof(struct XtVolume));
         first_volume = current_volume;
-        if (0 == XmlCreateReportFiles(export_dir)) {
+        if (0 == XmlCreateReportFiles(export_dir, current_volume->report_existing)) {
             XWF_OutputMessage(L"ERROR: Griffeye XML export X-Tension could n"
                               "ot create a file. Aborting.", 0);
             export_dir[0] = L'\0';
@@ -889,12 +975,18 @@ XT_Prepare(HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved) {
     // items in separate directories. Otherwise, all reports and folders were
     // already created in XT_Init.
     if (split_evidence_items) {
-        PWSTR volume_dir = NULL;
-        PathAllocCombine(export_dir_existing, current_volume->name, 0, &volume_dir);
-        BOOL success = XmlCreateReportFiles(volume_dir);
-        LocalFree(volume_dir);
+        PWSTR volume_dir_existing = NULL;
+        PWSTR volume_dir_deleted = NULL;
+        PathAllocCombine(export_dir_existing, current_volume->name, 0, &volume_dir_existing);
+        PathAllocCombine(export_dir_deleted, current_volume->name, 0, &volume_dir_deleted);
+        current_volume->report_existing = calloc(1, sizeof(struct XtReport));
+        current_volume->report_deleted = calloc(1, sizeof(struct XtReport));
+        BOOL success_existing = XmlCreateReportFiles(volume_dir_existing, current_volume->report_existing);
+        BOOL success_deleted = XmlCreateReportFiles(volume_dir_deleted, current_volume->report_deleted);
+        LocalFree(volume_dir_existing);
+        LocalFree(volume_dir_deleted);
 
-        if (success) {
+        if (success_existing && success_deleted) {
             return return_value;
         } else {
             XWF_OutputMessage(L"ERROR: Griffeye XML export X-Tension could n"
@@ -906,8 +998,8 @@ XT_Prepare(HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved) {
         }
     } else {
         // Reference global XtReport structure
-        current_volume->report = first_volume->report;
-        current_volume->report->ref_count++;
+        current_volume->report_existing = first_volume->report_existing;
+        current_volume->report_existing->ref_count++;
 
         return return_value;
     }
@@ -966,7 +1058,6 @@ XT_Finalize(HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved) {
     }
     current_volume->files = malloc(sizeof(struct XtFile) * fc);
 
-    struct XtReport *report = current_volume->report;
     struct XtFileId *file_ids = current_volume->file_ids;
     struct XtFile *files = current_volume->files;
 
@@ -1002,6 +1093,10 @@ XT_Finalize(HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved) {
         if (-1 == files[i].export_id) {
             continue;
         }
+        // Select report depending on file deletion status
+        struct XtReport *report =
+                files[i].deleted == 0 ? current_volume->report_existing : current_volume->report_deleted;
+
         // filepath = root export directory for this evidence item
         StringCchCopyW(filepath, MAX_PATH, report->export_path);
         // filepath = filepath + [Pictures|Movies]
@@ -1028,7 +1123,7 @@ XT_Finalize(HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved) {
         if (0 == hItem) {
             // This happens when X-Ways cannot access the file contents
             XWF_AddToReportTable(file_ids[i].xwf_id, REP_TABLE_FAILED, 1);
-            current_volume->report->inaccessible_count++;
+            report->inaccessible_count++;
         } else {
             // declare all variables we need for reading the current file...
             INT64 i64DataSizeRead = 0;       //amount of data of the current file that has already been processed
@@ -1079,7 +1174,7 @@ XT_Finalize(HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved) {
                     // Happens when X-Ways reports a filesize > 0 but the file
                     // reference does not contain any actual data.
                     free(filebuf);
-                    current_volume->report->empty_count++;
+                    report->empty_count++;
                     XWF_Close(hItem);
                 } else {
                     if (INVALID_HANDLE_VALUE == file) {
@@ -1120,11 +1215,11 @@ XT_Finalize(HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved) {
             switch (file_ids[i].type) {
                 case TYPE_PICTURE:
                     report->image_count++;
-                    XmlAppendImage(&files[i]);
+                    XmlAppendImage(&files[i], report);
                     break;
                 case TYPE_VIDEO:
                     report->movie_count++;
-                    XmlAppendMovie(&files[i]);
+                    XmlAppendMovie(&files[i], report);
                     break;
             }
         }
@@ -1152,81 +1247,13 @@ XT_Done(PVOID lpReserved) {
     struct XtVolume *vol = first_volume;
 
     while (vol) {
-        if (vol->report && 1 == vol->report->ref_count--) {
-            // This is the last reference, close tags and release files
-            XmlWriteString(vol->report->xml_image_index, L"</ReportIndex>");
-            XmlWriteString(vol->report->xml_movie_index, L"</ReportIndex>");
+        XmlFinishReport(vol->report_existing, REPORT_TYPE_EXISTING, vol->name);
+        XmlFinishReport(vol->report_deleted, REPORT_TYPE_DELETED, vol->name);
 
-            CloseHandle(vol->report->xml_case_report);
-            CloseHandle(vol->report->xml_image_index);
-            CloseHandle(vol->report->xml_movie_index);
-
-            // One log entry per evidence item
-            WCHAR buf[512];
-            StringCchPrintfW(buf, 512,
-                             L"Exported %d images and %d videos",
-                             vol->report->image_count,
-                             vol->report->movie_count);
-            XWF_OutputMessage(buf, 0);
-            if (vol->report->size_mismatch_count) {
-                StringCchPrintfW(buf, 512,
-                                 L"[*] including %d files with inaccurate si"
-                                 "ze (see report table)",
-                                 vol->report->size_mismatch_count);
-                XWF_OutputMessage(buf, 0);
-            }
-            if (vol->report->inaccessible_count) {
-                StringCchPrintfW(buf, 512,
-                                 L"[*] excluding %d inaccessible files (see "
-                                 "report table)",
-                                 vol->report->inaccessible_count);
-                XWF_OutputMessage(buf, 0);
-            }
-            if (vol->report->empty_count) {
-                StringCchPrintfW(buf, 512,
-                                 L"[*] excluding %d empty files",
-                                 vol->report->empty_count);
-                XWF_OutputMessage(buf, 0);
-            }
-
-            // Remove any empty export directories
-            LPWSTR dir = vol->report->export_path;
-
-            PWSTR img_subdir = NULL;
-            PWSTR vid_subdir = NULL;
-            PWSTR case_report = NULL;
-            PWSTR image_index = NULL;
-            PWSTR movie_index = NULL;
-
-            PathAllocCombine(dir, IMG_SUBDIR, 0, &img_subdir);
-            PathAllocCombine(dir, VID_SUBDIR, 0, &vid_subdir);
-            PathAllocCombine(dir, CASE_REPORT, 0, &case_report);
-            PathAllocCombine(dir, IMG_REPORT, 0, &image_index);
-            PathAllocCombine(dir, VID_REPORT, 0, &movie_index);
-
-            if (0 == vol->report->image_count) {
-                DeleteFileW(image_index);
-                RemoveDirectoryW(img_subdir);
-            }
-            if (0 == vol->report->movie_count) {
-                DeleteFileW(movie_index);
-                RemoveDirectoryW(vid_subdir);
-            }
-            if (0 == vol->report->image_count
-                && 0 == vol->report->movie_count) {
-                DeleteFileW(case_report);
-                RemoveDirectoryW(dir);
-            }
-
-            LocalFree(img_subdir);
-            LocalFree(vid_subdir);
-            LocalFree(case_report);
-            LocalFree(image_index);
-            LocalFree(movie_index);
-
-            free(vol->report);
-            vol->report = NULL;
-        }
+        free(vol->report_existing);
+        vol->report_existing = NULL;
+        free(vol->report_deleted);
+        vol->report_deleted = NULL;
 
         free(vol->file_ids);
         free(vol->files);
