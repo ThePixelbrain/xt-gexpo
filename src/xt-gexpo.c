@@ -121,7 +121,6 @@ WCHAR export_dir[MAX_PATH] = {0};
 WCHAR export_dir_existing[MAX_PATH] = {0};
 WCHAR export_dir_deleted[MAX_PATH] = {0};
 
-int split_evidence_items = 0;
 int xwf_version = 0;
 
 HANDLE hXwfWnd = NULL;
@@ -812,45 +811,12 @@ XT_Init(DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void *LicInfo) {
     XWF_OutputMessage(L"Griffeye XML export target:", 0);
     XWF_OutputMessage(export_dir, 1);
 
-    HANDLE first_obj = XWF_GetFirstEvObj(NULL);
-    if (!first_obj) {
+    if (!XWF_GetFirstEvObj(NULL)) {
         // Empty case
         XWF_OutputMessage(L"ERROR: Griffeye XML export X-Tension needs an ev"
                           "idence item to work on. Aborting.", 0);
         export_dir[0] = L'\0';
         return 1;
-    }
-    int create_global_report = 0;
-    // If there is more than one evidence item, ask the user whether we should
-    // split exported files and create a subdirectory for every evidence item.
-    if (XWF_GetNextEvObj(first_obj, NULL)) {
-        LPCWSTR cap = L"Do you want a merged export?";
-        LPCWSTR msg = L"This case contains several evidence items. Griffeye X"
-                      "ML export X-Tension can either create separate export"
-                      "s for each evidence item or one export with files fro"
-                      "m all evidence items. In any case, the file path will"
-                      " include the name of the evidence item and volume.\n "
-                      "\nDo you want to merge all exports into one?";
-        if (IDNO == MessageBoxW(hXwfWnd, msg, cap, MB_YESNO | MB_ICONINFORMATION)) {
-            split_evidence_items = 1;
-        } else {
-            create_global_report = 1;
-        }
-    } else {
-        // There is only one evidence item
-        create_global_report = 1;
-    }
-    if (create_global_report) {
-        // Our first volume will be a dummy one and will just serve as a
-        // link to the global XtReport structure.
-        current_volume = calloc(1, sizeof(struct XtVolume));
-        first_volume = current_volume;
-        if (0 == XmlCreateReportFiles(export_dir, current_volume->report_existing)) {
-            XWF_OutputMessage(L"ERROR: Griffeye XML export X-Tension could n"
-                              "ot create a file. Aborting.", 0);
-            export_dir[0] = L'\0';
-            return 1;
-        }
     }
 
     // 1: We are NOT thread-safe
@@ -971,37 +937,27 @@ XT_Prepare(HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved) {
     // New volume was created, initialize current_volume
     StringCchCopyW(current_volume->name, NAME_BUF_LEN, shortname);
 
-    // We need to create new report files only if we are to split evidence
-    // items in separate directories. Otherwise, all reports and folders were
-    // already created in XT_Init.
-    if (split_evidence_items) {
-        PWSTR volume_dir_existing = NULL;
-        PWSTR volume_dir_deleted = NULL;
-        PathAllocCombine(export_dir_existing, current_volume->name, 0, &volume_dir_existing);
-        PathAllocCombine(export_dir_deleted, current_volume->name, 0, &volume_dir_deleted);
-        current_volume->report_existing = calloc(1, sizeof(struct XtReport));
-        current_volume->report_deleted = calloc(1, sizeof(struct XtReport));
-        BOOL success_existing = XmlCreateReportFiles(volume_dir_existing, current_volume->report_existing);
-        BOOL success_deleted = XmlCreateReportFiles(volume_dir_deleted, current_volume->report_deleted);
-        LocalFree(volume_dir_existing);
-        LocalFree(volume_dir_deleted);
+    // We need to create new report files to split evidence items in separate directories.
+    PWSTR volume_dir_existing = NULL;
+    PWSTR volume_dir_deleted = NULL;
+    PathAllocCombine(export_dir_existing, current_volume->name, 0, &volume_dir_existing);
+    PathAllocCombine(export_dir_deleted, current_volume->name, 0, &volume_dir_deleted);
+    current_volume->report_existing = calloc(1, sizeof(struct XtReport));
+    current_volume->report_deleted = calloc(1, sizeof(struct XtReport));
+    BOOL success_existing = XmlCreateReportFiles(volume_dir_existing, current_volume->report_existing);
+    BOOL success_deleted = XmlCreateReportFiles(volume_dir_deleted, current_volume->report_deleted);
+    LocalFree(volume_dir_existing);
+    LocalFree(volume_dir_deleted);
 
-        if (success_existing && success_deleted) {
-            return return_value;
-        } else {
-            XWF_OutputMessage(L"ERROR: Griffeye XML export X-Tension could n"
-                              "ot create a file. Aborting.", 0);
-            // Returning -1 would prevent the XT_Finalize call, use
-            // silent fail condition in XT_ProcessItemEx instead.
-            export_dir[0] = L'\0';
-            return 0;
-        }
-    } else {
-        // Reference global XtReport structure
-        current_volume->report_existing = first_volume->report_existing;
-        current_volume->report_existing->ref_count++;
-
+    if (success_existing && success_deleted) {
         return return_value;
+    } else {
+        XWF_OutputMessage(L"ERROR: Griffeye XML export X-Tension could n"
+                          "ot create a file. Aborting.", 0);
+        // Returning -1 would prevent the XT_Finalize call, use
+        // silent fail condition in XT_ProcessItemEx instead.
+        export_dir[0] = L'\0';
+        return 0;
     }
 }
 
