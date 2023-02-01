@@ -1152,7 +1152,6 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                     // reference does not contain any actual data.
                     free(filebuf);
                     current_volume->report->empty_count++;
-                    XWF_Close(hItem);
                 }
                 else
                 {
@@ -1178,6 +1177,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
                     if (FALSE == rv)
                     {
                         CloseHandle(file);
+                        XWF_Close(hItem);
                         XWF_OutputMessage(L"ERROR: Griffeye XML export X-Ten"
                                           "sion could not write to export d"
                                           "irectory. Aborting.", 0);
@@ -1190,6 +1190,7 @@ XT_Finalize (HANDLE hVolume, HANDLE hEvidence, DWORD nOpType, PVOID lpReserved)
             } //while loop exporting file
 
             CloseHandle(file);
+            XWF_Close(hItem);
 
             XWF_AddToReportTable(file_ids[i].xwf_id, REP_TABLE_SUCCESS, 1);
 
