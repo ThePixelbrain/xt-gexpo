@@ -121,6 +121,8 @@ WCHAR export_dir[MAX_PATH] = {0};
 WCHAR export_dir_existing[MAX_PATH] = {0};
 WCHAR export_dir_deleted[MAX_PATH] = {0};
 
+DWORD config_bytes_transferred = 0;
+
 int xwf_version = 0;
 
 HANDLE hXwfWnd = NULL;
@@ -280,34 +282,11 @@ MyCallback(HWND hwnd, UINT uMsg, LPARAM lParam, LPARAM lpData) {
     return 0;
 }
 
-// Opens open file dialog, saves folder path in dir
-// Returns 1 if the user selected a writeable directory
+// Creates the export dir with all subdirectories.
+// Returns 1 if successful
 // Returns 0 if not
 BOOL
-BrowseForExportDir(LPWSTR dir) {
-    // Should be already initialized
-    OleInitialize(NULL);
-
-    BROWSEINFOW bi = {0};
-
-    bi.hwndOwner = hXwfWnd;
-    bi.lpszTitle = L"Griffeye XML export X-Tension\n\n"
-                   "Please select the target directory:";
-    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
-    // Use MyCallback to preselect and expand dir
-    bi.lpfn = (BFFCALLBACK) MyCallback;
-    bi.lParam = (LPARAM) dir;
-
-    PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
-    if (NULL == pidl) {
-        export_dir[0] = L'\0';
-        return 0;
-    }
-
-    // Store actual directory path inside dir
-    SHGetPathFromIDListW(pidl, dir);
-    CoTaskMemFree(pidl);
-
+CreateExportDirStructure(LPWSTR dir) {
     // Recursively prompt until we can create the export directory at the
     // selected path.
     PWSTR new_dir = NULL;
@@ -316,21 +295,7 @@ BrowseForExportDir(LPWSTR dir) {
     PathAllocCombine(dir, EXPORT_DIR, 0, &new_dir);
     if (!CreateDirectoryW(new_dir, NULL)) {
         LocalFree(new_dir);
-
-        if (ERROR_ALREADY_EXISTS == GetLastError()) {
-            MessageBoxW(hXwfWnd,
-                        L"The selected directory already contains a Griffeye"
-                        " export folder. Plese select another directory.",
-                        L"Notice",
-                        MB_ICONINFORMATION);
-        } else {
-            MessageBoxW(hXwfWnd,
-                        L"Could not create the Griffeye export folder here. "
-                        "Please select another directory",
-                        L"Error",
-                        MB_ICONERROR);
-        }
-        return BrowseForExportDir(dir);
+        return 0;
     }
 
     PathAllocCombine(new_dir, EXISTING_SUBDIR, 0, &existing_subdir);
@@ -347,6 +312,118 @@ BrowseForExportDir(LPWSTR dir) {
     LocalFree(existing_subdir);
     LocalFree(deleted_subdir);
 
+    return 1;
+}
+
+VOID CALLBACK FileIOCompletionRoutine(__in DWORD dwErrorCode, __in DWORD dwNumberOfBytesTransferred, __in LPOVERLAPPED lpOverlapped) {
+    config_bytes_transferred = dwNumberOfBytesTransferred;
+}
+
+// Opens open file dialog, saves folder path in dir
+// Returns 1 if the user selected a writeable directory
+// Returns 0 if not
+BOOL
+BrowseForExportDir(LPWSTR dir) {
+    // Should be already initialized
+    OleInitialize(NULL);
+
+    // https://learn.microsoft.com/en-us/windows/win32/fileio/opening-a-file-for-reading-or-writing#example-open-a-file-for-reading
+    // Expects the config file in the parent directory of the current case's folder. I'd rather have this file in a more
+    // suitable place, but I can't access the configured directories in X-Ways...
+    PWSTR config_path = NULL;
+    PathAllocCombine(dir, L"..\\xt-gexpo.conf", 0, &config_path);
+    HANDLE config_file = CreateFile(config_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+    LocalFree(config_path);
+
+    DWORD bytes_read = 0;
+    char read_buffer[MAX_PATH] = {0};
+    OVERLAPPED ol = {0};
+
+    // Read export directory from config file if it exists. Otherwise, prompt user for selection of one.
+    if (INVALID_HANDLE_VALUE != config_file) {
+        if (FALSE == ReadFileEx(config_file, read_buffer, MAX_PATH - 1, &ol, FileIOCompletionRoutine)) {
+            XWF_OutputMessage(L"ERROR: Could not read the config file, aborting.", 0);
+            CloseHandle(config_file);
+            return 0;
+        }
+        CloseHandle(config_file);
+
+        SleepEx(5000, TRUE);
+        bytes_read = config_bytes_transferred;
+
+        if (bytes_read > 0 && bytes_read <= MAX_PATH - 1) {
+            read_buffer[bytes_read] = '\0';
+        } else if (bytes_read == 0) {
+            XWF_OutputMessage(L"ERROR: Config file was found, but is empty. Aborting.", 0);
+            CloseHandle(config_file);
+            return 0;
+        } else {
+            XWF_OutputMessage(L"ERROR: Unexpected value for config file. Aborting.", 0);
+            CloseHandle(config_file);
+            return 0;
+        }
+
+
+        // Convert file content to WCHAR and store in dir variable
+        size_t origsize = strlen(read_buffer) + 1;
+        size_t convertedChars = 0;
+        mbstowcs_s(&convertedChars, dir, origsize, read_buffer, _TRUNCATE);
+
+        // Creates the export subdir from the case name inside the base export dir
+        PWSTR case_export_dir = NULL;
+        PathAllocCombine(dir, case_name, 0, &case_export_dir);
+        StringCchCopyW(dir, MAX_PATH, case_export_dir);
+        LocalFree(case_export_dir);
+
+        if (!CreateDirectoryW(dir, NULL) || !CreateExportDirStructure(dir)) {
+            if (ERROR_ALREADY_EXISTS == GetLastError()) {
+                XWF_OutputMessage(L"ERROR: The selected directory already contains a Griffeye"
+                                  " export folder. Plese select another directory.", 0);
+            } else {
+                XWF_OutputMessage(L"ERROR: Could not create the Griffeye export folder here. "
+                                  "Please select another directory", 0);
+            }
+            return 0;
+        }
+
+        XWF_OutputMessage(L"Griffeye config file found, automatically setting export dir", 0);
+    } else {
+        BROWSEINFOW bi = {0};
+
+        bi.hwndOwner = hXwfWnd;
+        bi.lpszTitle = L"Griffeye XML export X-Tension\n\n"
+                       "Please select the target directory:";
+        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
+        // Use MyCallback to preselect and expand dir
+        bi.lpfn = (BFFCALLBACK) MyCallback;
+        bi.lParam = (LPARAM) dir;
+
+        PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+        if (NULL == pidl) {
+            return 0;
+        }
+
+        // Store actual directory path inside dir
+        SHGetPathFromIDListW(pidl, dir);
+        CoTaskMemFree(pidl);
+
+        if (!CreateExportDirStructure(dir)) {
+            if (ERROR_ALREADY_EXISTS == GetLastError()) {
+                MessageBoxW(hXwfWnd,
+                            L"The selected directory already contains a Griffeye"
+                            " export folder. Plese select another directory.",
+                            L"Notice",
+                            MB_ICONINFORMATION);
+            } else {
+                MessageBoxW(hXwfWnd,
+                            L"Could not create the Griffeye export folder here. "
+                            "Please select another directory",
+                            L"Error",
+                            MB_ICONERROR);
+            }
+            return BrowseForExportDir(dir);
+        }
+    }
     return 1;
 }
 
@@ -803,6 +880,8 @@ XT_Init(DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void *LicInfo) {
     // Show 'select folder' dialog, starting at case directory
     XWF_GetCaseProp(NULL, XWF_CASEPROP_DIR, export_dir, MAX_PATH);
     if (0 == BrowseForExportDir(export_dir)) {
+        // Silent fail condition
+        export_dir[0] = L'\0';
         XWF_OutputMessage(L"NOTICE: Griffeye XML export X-Tension needs a va"
                           "lid export directory. Aborting.", 0);
         return 1;
