@@ -827,11 +827,10 @@ XmlFinishReport(struct XtReport *report, BOOL report_type, PWSTR evidence_name) 
 EXPORT LONG XTAPI
 XT_Init(DWORD nVersion, DWORD nFlags, HANDLE hMainWnd, void *LicInfo) {
     // Support X-Ways Forensics only
-    // No support for WinHex, Investigator and beta versions
+    // No support for WinHex and Investigator
     if (0 == (XT_INIT_XWF & nFlags)
         || XT_INIT_WHX & nFlags
-        || XT_INIT_XWI & nFlags
-        || XT_INIT_BETA & nFlags) {
+        || XT_INIT_XWI & nFlags) {
         return -1;
     }
 
